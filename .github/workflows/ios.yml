@@ -1,0 +1,103 @@
+name: iOS TestFlight
+
+# Builds, signs and uploads to TestFlight on a GitHub-hosted macOS runner
+# (free for public repositories). Signing is automatic via an App Store
+# Connect API key; no Mac or local certificates are needed.
+#
+# Secrets (Settings -> Secrets and variables -> Actions):
+#   ASC_KEY_ID       Key ID of the App Store Connect API key
+#   ASC_ISSUER_ID    Issuer ID (Users and Access -> Integrations)
+#   ASC_KEY_P8       Contents of the AuthKey_XXXX.p8 file
+# The key needs the Admin role (creating certificates/profiles for automatic
+# signing requires it).
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: ios-testflight
+  cancel-in-progress: false
+
+jobs:
+  testflight:
+    name: Build and upload to TestFlight
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Godot and export templates
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/mazeborn/godot
+            ~/Library/Application Support/Godot/export_templates
+          key: godot-${{ runner.os }}-${{ hashFiles('.godot-version') }}
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Export Godot project to Xcode
+        # Build numbers must increase for every upload; offset leaves room for
+        # earlier manual or Xcode Cloud uploads.
+        run: scripts/export-ios.sh "$((GITHUB_RUN_NUMBER + 100))"
+
+      - name: Write App Store Connect API key
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          test -n "$ASC_KEY_P8" || { echo "::error::Secret ASC_KEY_P8 is not set"; exit 1; }
+          key="$RUNNER_TEMP/AuthKey.p8"
+          printf '%s\n' "$ASC_KEY_P8" > "$key"
+          echo "ASC_KEY_PATH=$key" >> "$GITHUB_ENV"
+
+      - name: Archive
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        # Godot sets CODE_SIGN_IDENTITY="Apple Distribution" for Release, which
+        # conflicts with automatic signing; archive with the development
+        # identity and let the export re-sign for App Store distribution.
+        run: |
+          xcodebuild \
+            -project ios/Mazeborn.xcodeproj \
+            -scheme Mazeborn \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/Mazeborn.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            CODE_SIGN_IDENTITY="Apple Development" \
+            archive
+
+      - name: Export and upload to App Store Connect
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/Mazeborn.xcarchive" \
+            -exportOptionsPlist scripts/ExportOptions.plist \
+            -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+
+      - name: Remove API key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/AuthKey.p8"
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcode-logs
+          path: |
+            ~/Library/Logs/DiagnosticReports/
+            ${{ runner.temp }}/export/*.log
+          if-no-files-found: ignore

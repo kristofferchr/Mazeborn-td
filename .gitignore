@@ -1,0 +1,13 @@
+# Godot
+.godot/
+*.import.tmp
+build/
+
+# iOS export: large or generated per build (recreated by scripts/export-ios.sh).
+# The small Xcode project files are committed so Xcode Cloud can find the project.
+ios/*.xcframework/
+ios/Mazeborn.pck
+ios/Mazeborn.ipa
+ios/**/xcuserdata/
+
+.DS_Store
