@@ -42,7 +42,7 @@ Når `game/export_presets.cfg` eller Godot-versjonen endres: kjør
 4. **GitHub secrets:** repo → Settings → Secrets and variables → Actions → New repository secret:
    - `ASC_KEY_ID`: Key ID
    - `ASC_ISSUER_ID`: Issuer ID
-   - `ASC_KEY_P8`: hele innholdet i `.p8`-filen, inkludert `-----BEGIN PRIVATE KEY-----`-linjene
+   - `ASC_PRIVATE_KEY_BASE64`: `.p8`-filen base64-kodet (`base64 -i AuthKey_XXXX.p8`)
 5. **Kjør:** Actions → iOS TestFlight → Run workflow. Builden dukker opp i
    TestFlight etter noen minutter med prosessering hos Apple.
 
