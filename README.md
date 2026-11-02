@@ -21,4 +21,6 @@ scripts/godot.sh --path game          # åpne eller kjøre med pinnet Godot
 scripts/export-web.sh                 # web-bygg i build/web/
 scripts/export-ios.sh                 # Xcode-prosjekt i ios/
 scripts/screenshot.sh shot.png        # skjermbilde (xvfb, Compatibility-rendereren)
+scripts/test.sh                       # headless tester (game/tests/**/test_*.gd)
+gdlint game && gdformat --check game  # lint (pip install "gdtoolkit==4.5.0")
 ```

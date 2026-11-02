@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint (gdtoolkit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "gdtoolkit==4.5.0"
+      - run: gdlint game
+      - run: gdformat --check game
+
+  godot:
+    name: Test, export and screenshot
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Godot and export templates
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/mazeborn/godot
+            ~/.local/share/godot/export_templates
+          key: godot-${{ runner.os }}-${{ hashFiles('.godot-version') }}
+
+      - name: Install xvfb and Mesa
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq xvfb libgl1-mesa-dri
+
+      - name: Tests
+        run: scripts/test.sh
+
+      - name: Web export
+        run: scripts/export-web.sh build/web
+
+      - name: iOS export is in sync with committed Xcode project
+        run: |
+          scripts/export-ios.sh 1
+          if ! git diff --exit-code --stat -- ios/; then
+            echo "::error::ios/ is out of date. Run scripts/export-ios.sh and commit the changes."
+            exit 1
+          fi
+
+      - name: Screenshot
+        run: scripts/screenshot.sh build/screenshot.png res://main.tscn 60 2532x1170
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshot
+          path: build/screenshot.png
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: build/web

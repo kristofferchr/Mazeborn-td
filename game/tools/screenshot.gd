@@ -2,6 +2,7 @@ extends SceneTree
 ## Renders a scene for N frames and saves a PNG of the viewport.
 ## Usage: godot --path game -s res://tools/screenshot.gd -- <out.png> [scene] [frames]
 
+
 func _initialize() -> void:
 	var args := OS.get_cmdline_user_args()
 	var out := args[0] if args.size() > 0 else "user://screenshot.png"
