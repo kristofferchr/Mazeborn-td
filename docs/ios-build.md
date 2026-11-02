@@ -1,53 +1,63 @@
-# iOS-bygg med Xcode Cloud
+# iOS-bygg og TestFlight
 
-Godot eksporterer et Xcode-prosjekt. Xcode Cloud bygger, signerer og laster det
-opp til TestFlight. Ingen GitHub macOS-runnere, og macen trengs bare til
-engangsoppsettet.
+Repoet er offentlig, så GitHub sine macOS-runnere er gratis. Hovedveien er derfor
+**GitHub Actions** (`.github/workflows/ios.yml`): bygg, automatisk signering med
+en App Store Connect API-nøkkel og opplasting til TestFlight. **Ingen mac trengs.**
+
+Xcode Cloud (`ios/ci_scripts/`) er beholdt som alternativ, men krever at
+workflowen opprettes én gang fra Xcode på en mac.
 
 ## Slik fungerer det
 
-1. `ios/ci_scripts/ci_post_clone.sh` kjører på Xcode Cloud etter klone.
-2. Scriptet kaller `scripts/export-ios.sh "$CI_BUILD_NUMBER"`, som
-   - laster ned Godot for macOS og eksportmalene for versjonen i `.godot-version`
-     (`scripts/godot.sh`, ca. 170 MB pluss 1,3 GB malpakke, der vi bare beholder iOS og web),
-   - eksporterer `game/` til `ios/Mazeborn.xcodeproj` med byggnummeret fra Xcode Cloud.
-3. Xcode Cloud bygger `ios/Mazeborn.xcodeproj` med schemet `Mazeborn` og
-   arkiverer det til TestFlight.
+1. `scripts/export-ios.sh <build>` laster ned Godot og eksportmalene for
+   versjonen i `.godot-version` (`scripts/godot.sh`) og eksporterer `game/` til
+   `ios/Mazeborn.xcodeproj` med det gitte byggnummeret. Dette virker også på Linux.
+2. `xcodebuild archive` med `-allowProvisioningUpdates` og API-nøkkelen.
+   Xcode lager eller henter sertifikat og provisioning-profil selv.
+3. `xcodebuild -exportArchive` med `scripts/ExportOptions.plist`
+   (`app-store-connect`, `destination=upload`) signerer for App Store og laster opp.
+
+Workflowen kjører ved tagg `v*` eller manuelt (Actions → iOS TestFlight → Run workflow).
+Byggnummeret er `GITHUB_RUN_NUMBER + 100`.
 
 ### Hva som ligger i git
 
 | Sti | I git? | Hvorfor |
 |---|---|---|
-| `ios/Mazeborn.xcodeproj`, `ios/Mazeborn/`, `ios/PrivacyInfo.xcprivacy` | ✅ | Små filer. Xcode Cloud og Xcode må finne prosjektet før post-clone kjører. |
-| `ios/ci_scripts/` | ✅ | Xcode Cloud krever at mappen ligger ved siden av prosjektet. |
-| `ios/*.xcframework` (motoren, 189 MB per arkitektur), `ios/Mazeborn.pck` | ❌ | For store, og genereres på nytt av post-clone. |
+| `ios/Mazeborn.xcodeproj`, `ios/Mazeborn/`, `ios/PrivacyInfo.xcprivacy` | ✅ | Små filer. CI sjekker at de er i synk med eksporten. |
+| `ios/ci_scripts/` | ✅ | Bare for Xcode Cloud. |
+| `ios/*.xcframework` (motoren, 189 MB per arkitektur), `ios/Mazeborn.pck` | ❌ | For store, og genereres i hvert bygg. |
 
-De sjekkede iOS-filene regenereres av `scripts/export-ios.sh`. Kjør scriptet og
-commit endringene når `game/export_presets.cfg` eller Godot-versjonen endres.
+Når `game/export_presets.cfg` eller Godot-versjonen endres: kjør
+`scripts/export-ios.sh` og commit `ios/`.
 
-## Verifisert fra Linux (Claude Code-containeren)
+## Engangsoppsett (bare nettleser)
 
-- Godot 4.7.2 eksporterer et komplett Xcode-prosjekt fra Linux. Bare `.ipa` krever macOS.
-- Bundle ID `kristofferchr.MazebornTD` og team `TL57MDF5L6` (samme konto som Sleiv),
-  automatisk signering, iOS 16+, bare iPhone.
-- `ITSAppUsesNonExemptEncryption = false` legges inn av Godot.
+1. **App ID:** developer.apple.com → Identifiers → `kristofferchr.MazebornTD` ✅
+2. **App:** App Store Connect → Apps → **+** → New App, bundle ID `kristofferchr.MazebornTD`.
+3. **API-nøkkel:** App Store Connect → Users and Access → Integrations →
+   App Store Connect API → Team Keys → **+**. Rollen må være **Admin**, siden
+   automatisk signering må kunne lage sertifikater og profiler. Last ned `AuthKey_XXXX.p8`
+   (det går bare én gang) og noter Key ID og Issuer ID.
+4. **GitHub secrets:** repo → Settings → Secrets and variables → Actions → New repository secret:
+   - `ASC_KEY_ID`: Key ID
+   - `ASC_ISSUER_ID`: Issuer ID
+   - `ASC_KEY_P8`: hele innholdet i `.p8`-filen, inkludert `-----BEGIN PRIVATE KEY-----`-linjene
+5. **Kjør:** Actions → iOS TestFlight → Run workflow. Builden dukker opp i
+   TestFlight etter noen minutter med prosessering hos Apple.
 
-## Engangsoppsett (krever macen én gang)
+Secrets er ikke tilgjengelige for PR-er fra forks, og iOS-workflowen kjører bare
+på tagger og ved manuell start. Et offentlig repo lekker derfor ikke nøkkelen.
 
-1. App Store Connect → Apps → **+** → ny app med bundle ID
-   `kristofferchr.MazebornTD` (registrer ID-en under Certificates, Identifiers &
-   Profiles hvis den ikke dukker opp).
-2. Klon repoet på macen og åpne `ios/Mazeborn.xcodeproj` i Xcode.
-   Prosjektet bygger ikke lokalt før `scripts/export-ios.sh` er kjørt, men det
-   trengs ikke for å opprette workflowen.
-3. Product → Xcode Cloud → **Create Workflow**:
-   - Start condition: branch `main` (eller tagg `v*` senere, for å spare compute-timer)
-   - Environment: siste stabile Xcode og macOS
-   - Action: **Archive**, iOS, scheme `Mazeborn`, distribusjon **TestFlight (Internal Testing Only)**
-   - Post-action: TestFlight Internal Testing → din testergruppe
-4. Gi Xcode Cloud tilgang til GitHub-repoet når du blir bedt om det.
+## Kjente risikoer ved første kjøring
 
-Etter dette kan workflowen endres i App Store Connect på web (Xcode Cloud → Manage Workflows).
+- **«No devices»:** Arkivering med utviklingsidentitet krever at teamet har minst én
+  registrert enhet. iPhonen din er trolig registrert fra Sleiv. Hvis ikke: legg den til
+  under Certificates, Identifiers & Profiles → Devices (UDID finnes i Finder eller via
+  nettsteder som viser UDID).
+- **Signeringsfeil:** Faller automatisk signering gjennom, går vi over til manuell
+  signering: lag distribusjonssertifikat og App Store-profil via API-et, legg dem i
+  secrets og importer dem i en midlertidig nøkkelring på runneren.
 
 ## Lokalt (Linux eller mac)
 
@@ -57,9 +67,9 @@ scripts/export-web.sh          # web-bygg i build/web/
 scripts/screenshot.sh out.png  # skjermbilde av res://main.tscn
 ```
 
-## Feilsøking
+## Alternativ: Xcode Cloud
 
-- Loggene ligger i App Store Connect → Xcode Cloud → build → `ci_post_clone.sh`.
-- `godot.sh: downloading ...` feiler: sjekk at versjonen i `.godot-version` finnes
-  på https://github.com/godotengine/godot/releases.
-- `export-ios.sh: missing ios/...`: Godot-eksporten feilet. Se `ERROR:`-linjene over i loggen.
+`ios/ci_scripts/ci_post_clone.sh` kjører `scripts/export-ios.sh "$CI_BUILD_NUMBER"`.
+Workflowen må opprettes én gang fra Xcode (Product → Xcode Cloud → Create Workflow:
+Archive, scheme `Mazeborn`, TestFlight internal). Bruk bare én av løsningene,
+ellers kolliderer byggnumrene.

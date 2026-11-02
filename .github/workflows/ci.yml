@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, reopened, synchronize, closed]
   workflow_dispatch:
 
 concurrency:
@@ -13,6 +14,7 @@ concurrency:
 jobs:
   lint:
     name: Lint (gdtoolkit)
+    if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,6 +27,7 @@ jobs:
 
   godot:
     name: Test, export and screenshot
+    if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -66,3 +69,49 @@ jobs:
         with:
           name: web
           path: build/web
+
+  # Playable web build on GitHub Pages (branch gh-pages):
+  #   main      -> https://kristofferchr.github.io/Mazeborn-td/
+  #   PR #N     -> https://kristofferchr.github.io/Mazeborn-td/pr-preview/pr-N/
+  pages:
+    name: Publish web build
+    needs: [lint, godot]
+    if: >-
+      always() && !cancelled() &&
+      (github.event_name == 'push' ||
+       (github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    concurrency:
+      group: gh-pages
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        if: github.event.action != 'closed' && needs.godot.result == 'success'
+        with:
+          name: web
+          path: build/web
+
+      - name: Deploy main
+        if: github.event_name == 'push' && needs.godot.result == 'success'
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: build/web
+          branch: gh-pages
+          clean-exclude: pr-preview/
+          force: false
+
+      - name: Deploy or remove PR preview
+        if: >-
+          github.event_name == 'pull_request' &&
+          (github.event.action == 'closed' || needs.godot.result == 'success')
+        uses: rossjrw/pr-preview-action@v1
+        with:
+          source-dir: build/web
+          preview-branch: gh-pages
+          umbrella-dir: pr-preview
