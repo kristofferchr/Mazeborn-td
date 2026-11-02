@@ -7,7 +7,7 @@ name: iOS TestFlight
 # Secrets (Settings -> Secrets and variables -> Actions):
 #   ASC_KEY_ID       Key ID of the App Store Connect API key
 #   ASC_ISSUER_ID    Issuer ID (Users and Access -> Integrations)
-#   ASC_KEY_P8       Contents of the AuthKey_XXXX.p8 file
+#   ASC_PRIVATE_KEY_BASE64  base64 of the AuthKey_XXXX.p8 file (base64 -i AuthKey_XXXX.p8)
 # The key needs the Admin role (creating certificates/profiles for automatic
 # signing requires it).
 
@@ -46,11 +46,16 @@ jobs:
 
       - name: Write App Store Connect API key
         env:
-          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_PRIVATE_KEY_BASE64: ${{ secrets.ASC_PRIVATE_KEY_BASE64 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
-          test -n "$ASC_KEY_P8" || { echo "::error::Secret ASC_KEY_P8 is not set"; exit 1; }
+          for v in ASC_PRIVATE_KEY_BASE64 ASC_KEY_ID ASC_ISSUER_ID; do
+            test -n "${!v}" || { echo "::error::Secret $v is not set"; exit 1; }
+          done
           key="$RUNNER_TEMP/AuthKey.p8"
-          printf '%s\n' "$ASC_KEY_P8" > "$key"
+          printf '%s' "$ASC_PRIVATE_KEY_BASE64" | base64 --decode > "$key"
+          grep -q "BEGIN PRIVATE KEY" "$key" || { echo "::error::ASC_PRIVATE_KEY_BASE64 is not a base64-encoded .p8 key"; exit 1; }
           echo "ASC_KEY_PATH=$key" >> "$GITHUB_ENV"
 
       - name: Archive

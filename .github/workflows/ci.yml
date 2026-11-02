@@ -7,9 +7,11 @@ on:
     types: [opened, reopened, synchronize, closed]
   workflow_dispatch:
 
+# PR runs share a group per PR number. For a merged PR's "closed" event
+# github.ref is the base branch, so grouping by ref would cancel the main run.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint:
