@@ -10,6 +10,11 @@ Tower defense for iOS i klassisk Warcraft 3-stil: 3D-grafikk oppå 2D-logikk på
 
 ```
 game/            Godot-prosjektet
+  core/          spillregler som ren 2D-logikk (Grid, Game, Creep, Tower), testes headless
+  data/          bølger, økonomi og tårnverdier (waves.json)
+  view/          3D-lag og HUD som bare leser tilstanden (BoardView, CameraRig, Hud)
+  tests/         headless tester (scripts/test.sh)
+  tools/         skjermbilde, demo-scene og balanse-bot (ikke med i eksporten)
 ios/             eksportert Xcode-prosjekt og ci_scripts for Xcode Cloud
 scripts/         godot.sh (pinnet versjon), export-ios.sh, export-web.sh, screenshot.sh
 .godot-version   Godot-versjonen som brukes overalt
@@ -24,4 +29,6 @@ scripts/export-ios.sh                 # Xcode-prosjekt i ios/
 scripts/screenshot.sh shot.png        # skjermbilde (xvfb, Compatibility-rendereren)
 scripts/test.sh                       # headless tester (game/tests/**/test_*.gd)
 gdlint game && gdformat --check game  # lint (pip install "gdtoolkit==4.5.0")
+scripts/screenshot.sh shot.png res://tools/demo.tscn 30 2532x1170  # maze midt i en bølge
+scripts/godot.sh --headless --path game -s res://tools/balance.gd   # bot spiller en runde
 ```
