@@ -5,7 +5,7 @@ var t: Object  # test runner (check/eq)
 
 
 func test_every_wave_group_names_a_known_model() -> void:
-	var config := Game.load_config(Game.DEFAULT_CONFIG)
+	var config := Game.default_config()
 	for i in config.waves.size():
 		for g: Dictionary in config.waves[i].groups:
 			var id := str(g.get("model", ""))
