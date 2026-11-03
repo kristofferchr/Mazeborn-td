@@ -11,3 +11,6 @@ ios/Mazeborn.ipa
 ios/**/xcuserdata/
 
 .DS_Store
+
+# Candidate 3D assets for art comparisons (scripts/fetch-art-candidates.sh)
+game/art_candidates/
