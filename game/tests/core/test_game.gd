@@ -163,3 +163,27 @@ func test_simulate_uses_fixed_steps() -> void:
 	t.eq(g.ticks, 2, "two whole steps")
 	g.simulate(Game.DT * 0.6)
 	t.eq(g.ticks, 3, "remainder carried over")
+
+
+func test_next_wave_is_shown_before_and_during_waves() -> void:
+	var first := _wave(3, 10)
+	var second := _wave(1, 500)
+	second["tags"] = ["Boss"]
+	var g := _game([first, second])
+	t.eq(g.next_wave(), first, "before the first wave")
+	g.start_wave()
+	t.eq(g.next_wave(), second, "during wave 1 the next is wave 2")
+	g.run_wave()
+	t.eq(g.next_wave(), second, "between waves")
+	t.eq(Game.wave_tags(g.next_wave()), ["Boss"] as Array[String], "tags from data")
+	t.eq(Game.wave_tags(first), [] as Array[String], "no tags")
+	g.start_wave()
+	t.eq(g.next_wave(), {}, "no more waves")
+
+
+func test_default_waves_tag_fast_and_boss() -> void:
+	var g := Game.create_default()
+	t.eq(Game.wave_tags(g.waves[-1]), ["Boss"] as Array[String], "last wave is the boss")
+	for w in g.waves:
+		if float(w.speed) >= 2.5:
+			t.check("Rask" in Game.wave_tags(w), "fast waves are tagged")
