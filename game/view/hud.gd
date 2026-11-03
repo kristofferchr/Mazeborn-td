@@ -6,13 +6,20 @@ extends CanvasLayer
 
 signal start_wave_pressed
 signal build_pressed
+signal kind_selected(kind: String)
+signal upgrade_pressed
 signal sell_pressed
 signal targeting_pressed
 signal speed_pressed
 signal retry_pressed
 
 const MARGIN := 20.0
-const TAG_COLORS := {"Rask": Color(0.2, 0.55, 0.85), "Boss": Color(0.75, 0.2, 0.2)}
+const TAG_COLORS := {
+	"Rask": Color(0.2, 0.55, 0.85),
+	"Pansret": Color(0.45, 0.45, 0.5),
+	"Flygende": Color(0.55, 0.3, 0.8),
+	"Boss": Color(0.75, 0.2, 0.2),
+}
 
 var game: Game
 var board: BoardView
@@ -31,8 +38,13 @@ var _next_shown := -1  # wave index shown in the next-wave card
 var _speed: Button
 var _panel: PanelContainer
 var _info: Label
-var _action: Button
+var _build_row: HBoxContainer
+var _kind_buttons: Dictionary = {}  # kind -> Button
+var _build_button: Button
+var _tower_row: HBoxContainer
+var _upgrade: Button
 var _targeting: Button
+var _sell: Button
 var _end: Control
 var _end_title: Label
 var _end_text: Label
@@ -60,32 +72,69 @@ func is_over_ui(pos: Vector2) -> bool:
 	return false
 
 
-## Updates the selection panel. `cell` is a free cell (build) or a tower (sell).
-func show_selection(cell: Vector2i, has_selection: bool) -> void:
+## Updates the selection panel: the build menu on a free cell, or the selected
+## tower's info with upgrade, targeting and sell.
+func show_selection(cell: Vector2i, has_selection: bool, build_kind: String) -> void:
 	_panel.visible = has_selection
 	if not has_selection:
 		return
 	var tower := game.tower_at(cell)
-	var stats := game.tower_stats
+	_build_row.visible = tower == null
+	_layout.call_deferred()
+	_tower_row.visible = tower != null
 	if tower == null:
+		var s := game.tower_level_stats(build_kind)
 		_info.text = (
-			"Steintårn  ·  %d gull\nSkade %d–%d · rekkevidde %.1f\nTrykk igjen for å bygge"
-			% [game.tower_cost(), stats.damage_min, stats.damage_max, stats.range]
+			"%s · %d gull\n%s"
+			% [game.tower_name(build_kind), game.build_cost(build_kind), _describe(build_kind, s)]
 		)
-		_action.text = "Bygg"
-		_action.disabled = not game.can_build(cell)
-		_targeting.visible = false
+		for kind: String in _kind_buttons:
+			var b: Button = _kind_buttons[kind]
+			b.button_pressed = kind == build_kind
+			b.modulate = Color.WHITE if game.can_afford(kind) else Color(1, 1, 1, 0.45)
+		_build_button.disabled = not game.can_build(cell, build_kind)
 	else:
 		_info.text = (
-			"Steintårn\nSkade %d–%d · %.1f skudd/s"
-			% [tower.damage_min, tower.damage_max, 1.0 / tower.cooldown]
+			"%s · nivå %d/%d\n%s"
+			% [
+				tower.display_name(),
+				tower.level + 1,
+				tower.max_level() + 1,
+				_describe(tower.kind, tower.stats()),
+			]
 		)
-		_action.text = "Selg +%d" % game.refund_for(tower)
-		_action.disabled = game.is_over()
-		_targeting.visible = true
+		if tower.can_upgrade():
+			_upgrade.text = "Oppgrader %d" % tower.upgrade_cost()
+			_upgrade.disabled = not game.can_upgrade(cell)
+		else:
+			_upgrade.text = "Maks nivå"
+			_upgrade.disabled = true
+		_sell.text = "Selg +%d" % game.refund_for(tower)
+		_sell.disabled = game.is_over()
 		_targeting.text = (
 			"Mål: først" if tower.targeting == Tower.Targeting.FIRST else "Mål: nærmest"
 		)
+
+
+## One line of stats and effects for a tower kind at some level.
+func _describe(kind: String, s: Dictionary) -> String:
+	var parts: Array[String] = [
+		"Skade %d–%d" % [int(s.damage_min), int(s.damage_max)],
+		"%.1f/s" % (1.0 / float(s.cooldown)),
+		"rekkevidde %.1f" % float(s.range),
+	]
+	if s.has("splash_radius"):
+		parts.append("splash %.1f" % float(s.splash_radius))
+	if s.has("slow"):
+		parts.append("sakker ned %d %%" % roundi(float(s.slow) * 100.0))
+	if s.has("poison_dps"):
+		parts.append("gift %d/s ×%d" % [int(s.poison_dps), int(s.get("poison_stacks", 1))])
+	var targets: Array = game.tower_defs[kind].get("targets", ["ground"])
+	if "air" in targets and "ground" in targets:
+		parts.append("bakke og luft")
+	elif "air" in targets:
+		parts.append("bare luft")
+	return " · ".join(parts)
 
 
 func set_speed_text(text: String) -> void:
@@ -99,7 +148,12 @@ func _process(_delta: float) -> void:
 	_lives.text = "Liv %d" % game.lives
 	_wave.text = "Bølge %d/%d" % [game.wave, game.waves.size()]
 	_start.disabled = not game.can_start_wave()
-	_start.text = "Bølge pågår" if game.phase == Game.Phase.WAVE else "Start bølge"
+	if game.can_send_early():
+		_start.text = "Send neste +%d" % game.early_bonus
+	elif game.phase == Game.Phase.WAVE:
+		_start.text = "Bølge pågår"
+	else:
+		_start.text = "Start bølge"
 	_update_next_wave()
 	_bars.queue_redraw()
 
@@ -114,13 +168,20 @@ func _update_next_wave() -> void:
 	_next.visible = not w.is_empty() and not game.is_over()
 	if not _next.visible:
 		return
-	var count := int(w.count)
 	_next_title.text = "Neste: bølge %d" % (game.wave + 1)
-	_next_body.text = "%d %s · %d HP" % [count, "fiende" if count == 1 else "fiender", int(w.hp)]
+	var lines: Array[String] = []
+	for g in Game.wave_groups(w):
+		var count := int(g.count)
+		var kind := str(g.get("creep", "normal"))
+		var creep_name := str(game.creep_defs.get(kind, {}).get("name", kind)).to_lower()
+		if kind == "normal":
+			creep_name = "fiende" if count == 1 else "fiender"
+		lines.append("%d %s · %d HP" % [count, creep_name, int(g.hp)])
+	_next_body.text = "\n".join(lines)
 	for child in _next_tags.get_children():
 		_next_tags.remove_child(child)
 		child.queue_free()
-	var tags := Game.wave_tags(w)
+	var tags := game.wave_tags(w)
 	_next_tags.visible = not tags.is_empty()
 	for tag in tags:
 		var chip := Label.new()
@@ -188,20 +249,49 @@ func _build() -> void:
 
 	_panel = PanelContainer.new()
 	_panel.add_theme_stylebox_override("panel", _box(Color(0.08, 0.08, 0.1, 0.82)))
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 16)
-	_panel.add_child(row)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 10)
+	_panel.add_child(col)
 	_info = Label.new()
 	_info.add_theme_font_size_override("font_size", 22)
-	_info.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(_info)
+	col.add_child(_info)
+	_build_row = HBoxContainer.new()
+	_build_row.add_theme_constant_override("separation", 8)
+	col.add_child(_build_row)
+	for kind in game.tower_order:
+		var b := _button(
+			"%s\n%d" % [game.tower_name(kind).trim_suffix("tårn"), game.build_cost(kind)],
+			func() -> void: kind_selected.emit(kind)
+		)
+		b.toggle_mode = true
+		b.custom_minimum_size = Vector2(112, 84)
+		b.add_theme_font_size_override("font_size", 22)
+		var normal := _box(BoardView.tower_color(kind).darkened(0.55))
+		var pressed := _box(BoardView.tower_color(kind).darkened(0.1))
+		pressed.set_border_width_all(3)
+		pressed.border_color = Color(1.0, 0.9, 0.4)
+		b.add_theme_stylebox_override("normal", normal)
+		b.add_theme_stylebox_override("hover", normal)
+		b.add_theme_stylebox_override("pressed", pressed)
+		b.add_theme_stylebox_override("hover_pressed", pressed)
+		_kind_buttons[kind] = b
+		_build_row.add_child(b)
+	_build_button = _button("Bygg", func() -> void: build_pressed.emit())
+	_build_button.custom_minimum_size = Vector2(150, 84)
+	_build_row.add_child(_build_button)
+	_tower_row = HBoxContainer.new()
+	_tower_row.add_theme_constant_override("separation", 12)
+	col.add_child(_tower_row)
+	_upgrade = _button("Oppgrader", func() -> void: upgrade_pressed.emit())
+	_upgrade.custom_minimum_size = Vector2(220, 80)
+	_tower_row.add_child(_upgrade)
 	_targeting = _button("Mål: først", func() -> void: targeting_pressed.emit())
-	_targeting.custom_minimum_size = Vector2(170, 80)
+	_targeting.custom_minimum_size = Vector2(190, 80)
 	_targeting.add_theme_font_size_override("font_size", 22)
-	row.add_child(_targeting)
-	_action = _button("Bygg", func() -> void: _on_action())
-	_action.custom_minimum_size = Vector2(160, 80)
-	row.add_child(_action)
+	_tower_row.add_child(_targeting)
+	_sell = _button("Selg", func() -> void: sell_pressed.emit())
+	_sell.custom_minimum_size = Vector2(160, 80)
+	_tower_row.add_child(_sell)
 	_panel.visible = false
 	_root.add_child(_panel)
 
@@ -230,13 +320,6 @@ func _build() -> void:
 	_root.add_child(_end)
 
 	_ui = [top, _speed, _start, _panel]
-
-
-func _on_action() -> void:
-	if _action.text == "Bygg":
-		build_pressed.emit()
-	else:
-		sell_pressed.emit()
 
 
 func _stat(parent: Control, color: Color) -> Label:
@@ -311,7 +394,7 @@ func _draw_bars() -> void:
 	for creep in game.creeps:
 		var world := board.creep_world_pos(creep)
 		var scale := BoardView.creep_scale(creep)
-		world.y = 0.85 * scale
+		world.y += (0.5 if creep.flying else 0.85) * scale
 		if camera.is_position_behind(world):
 			continue
 		var p := camera.unproject_position(world)

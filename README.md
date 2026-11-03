@@ -11,7 +11,7 @@ Tower defense for iOS i klassisk Warcraft 3-stil: 3D-grafikk oppå 2D-logikk på
 ```
 game/            Godot-prosjektet
   core/          spillregler som ren 2D-logikk (Grid, Game, Creep, Tower), testes headless
-  data/          bølger, økonomi og tårnverdier (waves.json)
+  data/          bølger og økonomi (waves.json), tårntyper (towers.json) og fiendetyper (creeps.json)
   view/          3D-lag og HUD som bare leser tilstanden (BoardView, CameraRig, Hud)
   tests/         headless tester (scripts/test.sh)
   tools/         skjermbilde, demo-scene og balanse-bot (ikke med i eksporten)

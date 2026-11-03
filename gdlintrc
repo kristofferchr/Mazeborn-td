@@ -1,0 +1,2 @@
+# Game holds the round's rules in one place; allow a larger public API.
+max-public-methods: 40

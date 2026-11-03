@@ -4,11 +4,15 @@ extends RefCounted
 ## Pure 2D logic with a fixed time step and a seeded RNG, so a whole round can
 ## be simulated deterministically in tests. The 3D view only reads this state
 ## and listens to the signals.
+##
+## Config: start_gold, lives, wave_bonus, early_bonus and waves (data/waves.json),
+## towers (data/towers.json) and creeps (data/creeps.json).
 
 signal gold_changed(gold: int)
 signal lives_changed(lives: int)
 signal path_changed
 signal tower_built(tower: Tower)
+signal tower_upgraded(tower: Tower)
 signal tower_sold(tower: Tower, refund: int)
 signal tower_fired(tower: Tower, creep: Creep, damage: int)
 signal creep_spawned(creep: Creep)
@@ -21,23 +25,29 @@ signal game_over(won: bool)
 enum Phase { BUILD, WAVE, WON, LOST }
 
 const DT := 1.0 / 30.0  # fixed simulation step in seconds
-const DEFAULT_CONFIG := "res://data/waves.json"
+const WAVES_FILE := "res://data/waves.json"
+const TOWERS_FILE := "res://data/towers.json"
+const CREEPS_FILE := "res://data/creeps.json"
 
 var grid: Grid
 var phase := Phase.BUILD
 var gold: int
 var lives: int
-var wave := 0  # number of the current or last started wave (1-based)
+var wave := 0  # number of the last started wave (1-based)
 var waves: Array[Dictionary] = []
-var tower_stats: Dictionary
+var tower_defs: Dictionary  # kind -> definition with levels
+var tower_order: Array[String] = []
+var creep_defs: Dictionary  # kind -> definition
 var refund_rate: float
+var wave_bonus: int
+var early_bonus: int
 var creeps: Array[Creep] = []
 var towers: Dictionary = {}  # Vector2i -> Tower
 var ticks := 0
 var rng := RandomNumberGenerator.new()
 
 var _accumulator := 0.0
-var _to_spawn := 0
+var _queue: Array[Dictionary] = []  # groups left to spawn: {group, left}
 var _spawn_timer := 0.0
 var _next_creep_id := 1
 
@@ -47,35 +57,56 @@ func _init(config: Dictionary, p_grid: Grid, seed_value := 1) -> void:
 	rng.seed = seed_value
 	gold = int(config.start_gold)
 	lives = int(config.lives)
-	tower_stats = config.tower
-	refund_rate = float(config.tower.refund)
+	wave_bonus = int(config.get("wave_bonus", 0))
+	early_bonus = int(config.get("early_bonus", 0))
+	tower_defs = config.towers.towers
+	refund_rate = float(config.towers.refund)
+	for kind: Variant in config.towers.get("order", tower_defs.keys()):
+		tower_order.append(str(kind))
+	creep_defs = config.creeps
 	for w: Dictionary in config.waves:
 		waves.append(w)
 
 
-## Standard map (spawn left, goal right) with the waves from data/waves.json.
+## Standard map (spawn left, goal right) with the data in data/.
 static func create_default(seed_value := 1) -> Game:
-	return Game.new(load_config(DEFAULT_CONFIG), default_grid(), seed_value)
+	return Game.new(default_config(), default_grid(), seed_value)
+
+
+static func default_config() -> Dictionary:
+	var config: Dictionary = load_json(WAVES_FILE)
+	config.towers = load_json(TOWERS_FILE)
+	config.creeps = load_json(CREEPS_FILE)
+	return config
 
 
 static func default_grid() -> Grid:
 	return Grid.new(Vector2i(18, 12), Vector2i(0, 5), Vector2i(17, 6))
 
 
-static func load_config(res_path: String) -> Dictionary:
+static func load_json(res_path: String) -> Dictionary:
 	var json := load(res_path) as JSON
-	return json.data
+	return (json.data as Dictionary).duplicate(true)
 
 
 # --- Building -----------------------------------------------------------------
 
 
-func tower_cost() -> int:
-	return int(tower_stats.cost)
+func build_cost(kind: String) -> int:
+	return int(tower_defs[kind].levels[0].cost)
+
+
+func tower_name(kind: String) -> String:
+	return str(tower_defs[kind].get("name", kind))
+
+
+## Stats of a tower kind at a level (for previews).
+func tower_level_stats(kind: String, level := 0) -> Dictionary:
+	return tower_defs[kind].levels[level]
 
 
 func refund_for(tower: Tower) -> int:
-	return int(floor(tower.cost * refund_rate))
+	return int(floor(tower.invested * refund_rate))
 
 
 func tower_at(cell: Vector2i) -> Tower:
@@ -92,22 +123,41 @@ func creep_cells() -> Array[Vector2i]:
 	return cells
 
 
-func can_build(cell: Vector2i) -> bool:
-	return not is_over() and gold >= tower_cost() and grid.can_build(cell, creep_cells())
+func can_afford(kind: String) -> bool:
+	return tower_defs.has(kind) and gold >= build_cost(kind)
 
 
-func build(cell: Vector2i) -> Tower:
-	if not can_build(cell) or not grid.build(cell, creep_cells()):
+func can_build(cell: Vector2i, kind := "stone") -> bool:
+	return not is_over() and can_afford(kind) and grid.can_build(cell, creep_cells())
+
+
+func build(cell: Vector2i, kind := "stone") -> Tower:
+	if not can_build(cell, kind) or not grid.build(cell, creep_cells()):
 		return null
-	var tower := Tower.new(cell, tower_stats)
+	var tower := Tower.new(cell, kind, tower_defs[kind])
 	towers[cell] = tower
-	_add_gold(-tower.cost)
+	_add_gold(-tower.invested)
 	_repath()
 	tower_built.emit(tower)
 	return tower
 
 
-## Sells the tower on cell for a partial refund. Returns the refund (0 if none).
+func can_upgrade(cell: Vector2i) -> bool:
+	var tower := tower_at(cell)
+	return tower != null and not is_over() and tower.can_upgrade() and gold >= tower.upgrade_cost()
+
+
+func upgrade(cell: Vector2i) -> bool:
+	if not can_upgrade(cell):
+		return false
+	var tower := tower_at(cell)
+	_add_gold(-tower.upgrade_cost())
+	tower.upgrade()
+	tower_upgraded.emit(tower)
+	return true
+
+
+## Sells the tower on cell for 75 % of all gold put into it. Returns the refund.
 func sell(cell: Vector2i) -> int:
 	var tower := tower_at(cell)
 	if tower == null or is_over():
@@ -124,37 +174,68 @@ func sell(cell: Vector2i) -> int:
 # --- Waves --------------------------------------------------------------------
 
 
+## A new wave may start between waves, or early once the current one has spawned.
 func can_start_wave() -> bool:
-	return phase == Phase.BUILD and wave < waves.size()
+	if is_over() or wave >= waves.size():
+		return false
+	return phase == Phase.BUILD or _queue.is_empty()
+
+
+## True while a wave runs and the next can be sent early for early_bonus gold.
+func can_send_early() -> bool:
+	return phase == Phase.WAVE and can_start_wave()
 
 
 func start_wave() -> bool:
 	if not can_start_wave():
 		return false
+	if phase == Phase.WAVE:
+		_add_gold(early_bonus)
 	wave += 1
 	phase = Phase.WAVE
-	_to_spawn = int(current_wave().count)
-	_spawn_timer = 0.0
+	for group: Dictionary in wave_groups(waves[wave - 1]):
+		_queue.append({"group": group, "left": int(group.count)})
+	if _spawn_timer < 0.0:
+		_spawn_timer = 0.0
 	wave_started.emit(wave)
 	return true
 
 
-## The wave that comes after the current one (or the first, before any wave),
-## or an empty dictionary when there are no more waves. Shown in the HUD.
+## The wave after the last started one, or {} when there are no more waves.
 func next_wave() -> Dictionary:
 	return waves[wave] if wave < waves.size() else {}
 
 
-## Optional labels for a wave ("Rask", "Boss" ...) from the data.
-static func wave_tags(w: Dictionary) -> Array[String]:
+## Groups of a wave; a wave without "groups" is one group.
+static func wave_groups(w: Dictionary) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	if w.has("groups"):
+		for g: Dictionary in w.groups:
+			out.append(g)
+	elif not w.is_empty():
+		out.append(w)
+	return out
+
+
+func wave_count(w: Dictionary) -> int:
+	var n := 0
+	for g in wave_groups(w):
+		n += int(g.count)
+	return n
+
+
+## Labels for a wave: the tags of its creep kinds ("Rask", "Flygende" ...) and
+## its own tags from the data.
+func wave_tags(w: Dictionary) -> Array[String]:
 	var tags: Array[String] = []
+	for g in wave_groups(w):
+		var tag := str(_creep_def(str(g.get("creep", "normal"))).get("tag", ""))
+		if tag != "" and tag not in tags:
+			tags.append(tag)
 	for tag: Variant in w.get("tags", []):
-		tags.append(str(tag))
+		if str(tag) not in tags:
+			tags.append(str(tag))
 	return tags
-
-
-func current_wave() -> Dictionary:
-	return waves[clampi(wave - 1, 0, waves.size() - 1)]
 
 
 func is_over() -> bool:
@@ -190,6 +271,7 @@ func step() -> void:
 		return
 	ticks += 1
 	_spawn()
+	_tick_effects()
 	_move_creeps()
 	if phase == Phase.LOST:
 		return
@@ -197,20 +279,41 @@ func step() -> void:
 	_check_wave_end()
 
 
+func _creep_def(kind: String) -> Dictionary:
+	return creep_defs.get(kind, {})
+
+
 func _spawn() -> void:
-	if phase != Phase.WAVE or _to_spawn <= 0:
+	if phase != Phase.WAVE or _queue.is_empty():
 		return
 	_spawn_timer -= DT
 	if _spawn_timer > 0.0:
 		return
-	var w := current_wave()
-	var creep := Creep.new(_next_creep_id, float(w.hp), float(w.speed), int(w.bounty), grid.spawn)
+	var entry: Dictionary = _queue[0]
+	var g: Dictionary = entry.group
+	var kind := str(g.get("creep", "normal"))
+	var def := _creep_def(kind)
+	var speed := float(g.get("speed", def.get("speed", 1.7)))
+	var creep := Creep.new(_next_creep_id, float(g.hp), speed, int(g.bounty), grid.spawn, kind)
+	creep.armor = int(g.get("armor", def.get("armor", 0)))
+	creep.flying = bool(def.get("flying", false))
 	_next_creep_id += 1
-	creep.set_path(grid.path())
+	if creep.flying:
+		creep.set_path([grid.goal])
+	else:
+		creep.set_path(grid.path())
 	creeps.append(creep)
-	_to_spawn -= 1
-	_spawn_timer += float(w.interval)
+	entry.left -= 1
+	if entry.left <= 0:
+		_queue.remove_at(0)
+	_spawn_timer += float(g.interval)
 	creep_spawned.emit(creep)
+
+
+func _tick_effects() -> void:
+	for creep in creeps:
+		creep.tick_effects(DT)
+	_reap()
 
 
 func _move_creeps() -> void:
@@ -237,19 +340,43 @@ func _fire_towers() -> void:
 			tower.target_id = -1
 			continue
 		tower.target_id = target.id
-		tower.reload = tower.cooldown
-		var damage := rng.randi_range(tower.damage_min, tower.damage_max)
-		target.hp -= damage
-		tower_fired.emit(tower, target, damage)
-		if not target.alive():
-			creeps.erase(target)
-			_add_gold(target.bounty)
-			creep_killed.emit(target)
+		tower.reload = tower.cooldown()
+		_attack(tower, target)
+	_reap()
+
+
+func _attack(tower: Tower, target: Creep) -> void:
+	var s := tower.stats()
+	var damage := rng.randi_range(int(s.damage_min), int(s.damage_max))
+	var dealt := int(target.hit(damage))
+	tower_fired.emit(tower, target, dealt)
+	if s.has("splash_radius"):
+		var radius := float(s.splash_radius)
+		for other in creeps:
+			if other != target and other.alive() and tower.can_hit(other):
+				if other.pos.distance_to(target.pos) <= radius:
+					other.hit(damage * float(s.splash_factor))
+	if s.has("slow"):
+		target.apply_slow(float(s.slow), float(s.slow_time))
+	if s.has("poison_dps"):
+		target.apply_poison(
+			float(s.poison_dps), float(s.poison_time), int(s.get("poison_stacks", 1))
+		)
+
+
+## Removes dead creeps and pays their bounty.
+func _reap() -> void:
+	for creep in creeps.duplicate():
+		if not creep.alive():
+			creeps.erase(creep)
+			_add_gold(creep.bounty)
+			creep_killed.emit(creep)
 
 
 func _check_wave_end() -> void:
-	if phase != Phase.WAVE or _to_spawn > 0 or not creeps.is_empty():
+	if phase != Phase.WAVE or not _queue.is_empty() or not creeps.is_empty():
 		return
+	_add_gold(wave_bonus)
 	wave_cleared.emit(wave)
 	if wave >= waves.size():
 		phase = Phase.WON
@@ -260,7 +387,8 @@ func _check_wave_end() -> void:
 
 func _repath() -> void:
 	for creep in creeps:
-		creep.set_path(grid.path_from(creep.target_cell()))
+		if not creep.flying:
+			creep.set_path(grid.path_from(creep.target_cell()))
 	path_changed.emit()
 
 
