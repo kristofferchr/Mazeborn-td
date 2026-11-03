@@ -1,0 +1,24 @@
+{
+	"start_gold": 60,
+	"lives": 20,
+	"tower": {
+		"cost": 10,
+		"refund": 0.75,
+		"range": 3.0,
+		"damage_min": 7,
+		"damage_max": 11,
+		"cooldown": 0.8
+	},
+	"waves": [
+		{"count": 10, "hp": 40, "speed": 1.6, "interval": 1.0, "bounty": 2},
+		{"count": 12, "hp": 60, "speed": 1.6, "interval": 0.9, "bounty": 2},
+		{"count": 12, "hp": 90, "speed": 1.8, "interval": 0.9, "bounty": 3},
+		{"count": 14, "hp": 120, "speed": 1.8, "interval": 0.8, "bounty": 3},
+		{"count": 20, "hp": 90, "speed": 2.6, "interval": 0.5, "bounty": 3},
+		{"count": 14, "hp": 220, "speed": 1.6, "interval": 0.9, "bounty": 4},
+		{"count": 16, "hp": 260, "speed": 1.8, "interval": 0.8, "bounty": 4},
+		{"count": 24, "hp": 200, "speed": 2.6, "interval": 0.5, "bounty": 4},
+		{"count": 16, "hp": 420, "speed": 1.7, "interval": 0.9, "bounty": 5},
+		{"count": 1, "hp": 4000, "speed": 1.2, "interval": 1.0, "bounty": 50}
+	]
+}
