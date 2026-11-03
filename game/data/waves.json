@@ -14,11 +14,11 @@
 		{"count": 12, "hp": 50, "speed": 1.6, "interval": 0.9, "bounty": 3},
 		{"count": 12, "hp": 75, "speed": 1.8, "interval": 0.9, "bounty": 4},
 		{"count": 14, "hp": 95, "speed": 1.8, "interval": 0.8, "bounty": 4},
-		{"count": 20, "hp": 85, "speed": 2.6, "interval": 0.5, "bounty": 3},
+		{"count": 20, "hp": 85, "speed": 2.6, "interval": 0.5, "bounty": 3, "tags": ["Rask"]},
 		{"count": 14, "hp": 260, "speed": 1.6, "interval": 0.9, "bounty": 6},
 		{"count": 16, "hp": 320, "speed": 1.8, "interval": 0.8, "bounty": 6},
-		{"count": 24, "hp": 240, "speed": 2.6, "interval": 0.5, "bounty": 5},
+		{"count": 24, "hp": 240, "speed": 2.6, "interval": 0.5, "bounty": 5, "tags": ["Rask"]},
 		{"count": 16, "hp": 520, "speed": 1.7, "interval": 0.9, "bounty": 8},
-		{"count": 1, "hp": 7000, "speed": 1.2, "interval": 1.0, "bounty": 100}
+		{"count": 1, "hp": 7000, "speed": 1.2, "interval": 1.0, "bounty": 100, "tags": ["Boss"]}
 	]
 }

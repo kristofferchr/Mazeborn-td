@@ -139,6 +139,20 @@ func start_wave() -> bool:
 	return true
 
 
+## The wave that comes after the current one (or the first, before any wave),
+## or an empty dictionary when there are no more waves. Shown in the HUD.
+func next_wave() -> Dictionary:
+	return waves[wave] if wave < waves.size() else {}
+
+
+## Optional labels for a wave ("Rask", "Boss" ...) from the data.
+static func wave_tags(w: Dictionary) -> Array[String]:
+	var tags: Array[String] = []
+	for tag: Variant in w.get("tags", []):
+		tags.append(str(tag))
+	return tags
+
+
 func current_wave() -> Dictionary:
 	return waves[clampi(wave - 1, 0, waves.size() - 1)]
 

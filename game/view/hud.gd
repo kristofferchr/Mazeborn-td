@@ -12,6 +12,7 @@ signal speed_pressed
 signal retry_pressed
 
 const MARGIN := 20.0
+const TAG_COLORS := {"Rask": Color(0.2, 0.55, 0.85), "Boss": Color(0.75, 0.2, 0.2)}
 
 var game: Game
 var board: BoardView
@@ -22,6 +23,11 @@ var _gold: Label
 var _lives: Label
 var _wave: Label
 var _start: Button
+var _next: PanelContainer
+var _next_title: Label
+var _next_body: Label
+var _next_tags: HBoxContainer
+var _next_shown := -1  # wave index shown in the next-wave card
 var _speed: Button
 var _panel: PanelContainer
 var _info: Label
@@ -94,7 +100,40 @@ func _process(_delta: float) -> void:
 	_wave.text = "Bølge %d/%d" % [game.wave, game.waves.size()]
 	_start.disabled = not game.can_start_wave()
 	_start.text = "Bølge pågår" if game.phase == Game.Phase.WAVE else "Start bølge"
+	_update_next_wave()
 	_bars.queue_redraw()
+
+
+## Card above the start button: what the next wave holds (count, health, tags).
+func _update_next_wave() -> void:
+	var shown := game.wave if not game.is_over() else -1
+	if shown == _next_shown:
+		return
+	_next_shown = shown
+	var w := game.next_wave()
+	_next.visible = not w.is_empty() and not game.is_over()
+	if not _next.visible:
+		return
+	var count := int(w.count)
+	_next_title.text = "Neste: bølge %d" % (game.wave + 1)
+	_next_body.text = "%d %s · %d HP" % [count, "fiende" if count == 1 else "fiender", int(w.hp)]
+	for child in _next_tags.get_children():
+		_next_tags.remove_child(child)
+		child.queue_free()
+	var tags := Game.wave_tags(w)
+	_next_tags.visible = not tags.is_empty()
+	for tag in tags:
+		var chip := Label.new()
+		chip.text = tag
+		chip.add_theme_font_size_override("font_size", 20)
+		var style := _box(TAG_COLORS.get(tag, Color(0.4, 0.4, 0.45)))
+		style.content_margin_top = 2
+		style.content_margin_bottom = 2
+		style.content_margin_left = 10
+		style.content_margin_right = 10
+		chip.add_theme_stylebox_override("normal", style)
+		_next_tags.add_child(chip)
+	_layout()
 
 
 func _build() -> void:
@@ -128,6 +167,24 @@ func _build() -> void:
 	_start.custom_minimum_size = Vector2(260, 96)
 	_start.add_theme_font_size_override("font_size", 34)
 	_root.add_child(_start)
+
+	_next = PanelContainer.new()
+	_next.add_theme_stylebox_override("panel", _box(Color(0.08, 0.08, 0.1, 0.75)))
+	var next_box := VBoxContainer.new()
+	next_box.add_theme_constant_override("separation", 4)
+	_next.add_child(next_box)
+	_next_title = Label.new()
+	_next_title.add_theme_font_size_override("font_size", 20)
+	_next_title.add_theme_color_override("font_color", Color(0.75, 0.78, 0.85))
+	next_box.add_child(_next_title)
+	_next_body = Label.new()
+	_next_body.add_theme_font_size_override("font_size", 26)
+	next_box.add_child(_next_body)
+	_next_tags = HBoxContainer.new()
+	_next_tags.add_theme_constant_override("separation", 8)
+	next_box.add_child(_next_tags)
+	_next.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(_next)
 
 	_panel = PanelContainer.new()
 	_panel.add_theme_stylebox_override("panel", _box(Color(0.08, 0.08, 0.1, 0.82)))
@@ -241,6 +298,9 @@ func _layout() -> void:
 	_speed.position = Vector2(right - _speed.size.x, top)
 	_start.size = _start.custom_minimum_size
 	_start.position = Vector2(right - _start.size.x, bottom - _start.size.y)
+	_next.reset_size()
+	_next.size.x = maxf(_next.size.x, _start.size.x)
+	_next.position = Vector2(right - _next.size.x, _start.position.y - 10.0 - _next.size.y)
 	_panel.reset_size()
 	_panel.position = Vector2(left, bottom - _panel.size.y)
 
@@ -265,6 +325,7 @@ func _draw_bars() -> void:
 
 func _on_game_over(won: bool) -> void:
 	_panel.visible = false
+	_next.visible = false
 	_end.visible = true
 	if won:
 		_end_title.text = "Seier!"
