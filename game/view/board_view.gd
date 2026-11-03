@@ -4,20 +4,50 @@ extends Node3D
 ## Cell (x, y) is drawn at world (x + 0.5, 0, y + 0.5). Models: see CREDITS.md.
 
 const TOWER_COLORS := {
-	"stone": Color(0.62, 0.58, 0.52),
-	"cannon": Color(0.42, 0.36, 0.3),
-	"frost": Color(0.55, 0.8, 0.95),
-	"poison": Color(0.35, 0.75, 0.25),
-	"air": Color(0.95, 0.78, 0.3),
+	"arrow": Color(0.95, 0.75, 0.3),
+	"earth": Color(0.55, 0.45, 0.32),
+	"wind": Color(0.75, 0.9, 1.0),
+	"elemental": Color(0.7, 0.45, 1.0),
+}
+const ELEMENT_COLORS := {
+	"": Color(0.7, 0.45, 1.0),
+	"fire": Color(1.0, 0.45, 0.15),
+	"ice": Color(0.55, 0.85, 1.0),
+	"lightning": Color(1.0, 0.92, 0.35),
+	"nature": Color(0.45, 0.9, 0.35),
+}
+## KayKit colour variant per element (the roofs).
+const ELEMENT_VARIANTS := {
+	"": "red", "fire": "red", "ice": "blue", "lightning": "yellow", "nature": "green"
 }
 const MEDIEVAL := "res://assets/kaykit_medieval/"
-## Tower model per kind: KayKit file, scale (fits one cell) and where shots start.
-const TOWER_MODELS := {
-	"stone": {"file": "building_tower_A_red.gltf", "scale": 0.82, "top": 1.7},
-	"cannon": {"file": "building_tower_catapult_yellow.gltf", "scale": 0.73, "top": 1.3},
-	"frost": {"file": "building_tower_B_blue.gltf", "scale": 0.69, "top": 1.6},
-	"poison": {"file": "building_tower_B_green.gltf", "scale": 0.69, "top": 1.6},
-	"air": {"file": "building_archeryrange_yellow.gltf", "scale": 0.57, "top": 1.0},
+## Model and scale per kind and level: towers start small and grow.
+## "%s" is the element's colour variant (Elemental).
+const TOWER_ART := {
+	"arrow":
+	[
+		["building_tower_base_yellow", 0.5],
+		["building_tower_A_yellow", 0.62],
+		["building_tower_B_yellow", 0.74],
+	],
+	"earth":
+	[
+		["building_mine_green", 0.42],
+		["building_tower_catapult_green", 0.62],
+		["building_castle_green", 0.46],
+	],
+	"wind":
+	[
+		["building_windmill_blue", 0.5],
+		["building_windmill_blue", 0.68],
+		["building_windmill_blue", 0.86],
+	],
+	"elemental":
+	[
+		["building_tower_base_red", 0.5],
+		["building_tower_A_%s", 0.62],
+		["building_tower_B_%s", 0.74],
+	],
 }
 const CANNON_BALL := "res://assets/kaykit_medieval/projectile_catapult.gltf"
 const TREE_MODELS := [
@@ -30,6 +60,8 @@ const TREE_MODELS := [
 const BASE_SPEED := 1.7  # creep speed (cells/s) that plays the walk animation at 1x
 const DEATH_TIME := 1.0  # seconds the death animation plays before the body sinks
 const POISON_TINT := Color(0.3, 0.9, 0.2, 0.45)
+const BURN_TINT := Color(1.0, 0.45, 0.1, 0.5)
+const STUN_TINT := Color(1.0, 1.0, 0.7, 0.6)
 const SLOW_TINT := Color(0.5, 0.8, 1.0, 0.5)
 const FLY_HEIGHT := 1.1
 const OK_COLOR := Color(0.35, 1.0, 0.55)
@@ -47,6 +79,7 @@ var _scenes: Dictionary = {}  # path -> PackedScene
 var _path: MeshInstance3D
 var _ground: ShaderMaterial
 var _ghosts: Dictionary = {}  # kind -> translucent preview model
+var _tops: Dictionary = {}  # model file -> height of the model at scale 1
 var _ghost_ok := {}  # kind -> last preview colour state
 var _cell: MeshInstance3D
 var _ring: MeshInstance3D
@@ -99,6 +132,7 @@ func setup(p_game: Game) -> void:
 	game.tower_sold.connect(_on_tower_sold)
 	game.tower_fired.connect(_on_tower_fired)
 	game.projectile_hit.connect(_on_projectile_hit)
+	game.chain_hit.connect(_on_chain_hit)
 	game.creep_spawned.connect(_on_creep_spawned)
 	game.creep_killed.connect(_on_creep_removed.bind(true))
 	game.creep_leaked.connect(_on_creep_removed.bind(false))
@@ -129,7 +163,7 @@ func show_selection(cell: Vector2i, has_selection: bool, build_kind: String) -> 
 	(_ring.material_override as ShaderMaterial).set_shader_parameter("color", color)
 	_cell.position = cell_pos(cell, 0.03)
 	_ring.position = cell_pos(cell, 0.025)
-	var r := tower.attack_range() if tower else float(game.tower_level_stats(build_kind).range)
+	var r := tower.attack_range() if tower else float(game.tower_base_stats(build_kind).range)
 	_ring.scale = Vector3(r, 1.0, r)
 	if tower == null:
 		var ghost := _ghost(build_kind)
@@ -177,8 +211,12 @@ func _process(_delta: float) -> void:
 ## Overlay tint: blue while slowed, green while poisoned, none otherwise.
 func _tint(node: Node3D, creep: Creep) -> void:
 	var tint := Color(0, 0, 0, 0)
-	if creep.slow > 0.0:
+	if creep.stun_time > 0.0:
+		tint = STUN_TINT
+	elif creep.slow > 0.0:
 		tint = SLOW_TINT
+	elif creep.burn_time > 0.0:
+		tint = BURN_TINT
 	elif not creep.poison.is_empty():
 		tint = POISON_TINT
 	if tint == node.get_meta("tint", Color(0, 0, 0, 0)):
@@ -375,29 +413,65 @@ func _on_tower_upgraded(tower: Tower) -> void:
 	create_tween().tween_property(root, "scale", full, 0.2)
 
 
-## The KayKit model of a tower kind at the origin (also used for the build
-## preview and the HUD thumbnails).
-func tower_preview(kind: String) -> Node3D:
+## Tower model at the origin for a kind, level and element (also used for the
+## build preview and the HUD thumbnails). Meta "top" is where shots start.
+func tower_preview(kind: String, level := 0, element := "") -> Node3D:
+	var levels: Array = TOWER_ART.get(kind, TOWER_ART.arrow)
+	var art: Array = levels[clampi(level, 0, levels.size() - 1)]
+	var file := str(art[0])
+	if "%s" in file:
+		file = file % ELEMENT_VARIANTS.get(element, "red")
 	var root := Node3D.new()
-	var def: Dictionary = TOWER_MODELS.get(kind, TOWER_MODELS.stone)
-	var model := _scene(MEDIEVAL + str(def.file)).instantiate() as Node3D
-	model.scale = Vector3.ONE * float(def.scale)
+	var model := _scene(MEDIEVAL + file + ".gltf").instantiate() as Node3D
+	model.scale = Vector3.ONE * float(art[1])
 	root.add_child(model)
-	root.set_meta("top", float(def.top))
+	var top := _model_top(file, model) * float(art[1])
+	if kind == "elemental":
+		_orb(root, element, top, level)
+		top += 0.3
+	root.set_meta("top", top)
 	return root
 
 
-## Tower model with gold rings at the base for the level.
-func _tower_model(tower: Tower) -> Node3D:
-	var root := tower_preview(tower.kind)
-	root.position = cell_pos(tower.cell)
-	var def: Dictionary = TOWER_MODELS.get(tower.kind, TOWER_MODELS.stone)
+## Height of a model (cached per file).
+func _model_top(file: String, model: Node3D) -> float:
+	if not _tops.has(file):
+		var top := 0.0
+		for mi: MeshInstance3D in model.find_children("*", "MeshInstance3D", true, false):
+			var box := mi.transform * mi.get_aabb()
+			var p: Node = mi.get_parent()
+			while p and p != model:
+				box = (p as Node3D).transform * box if p is Node3D else box
+				p = p.get_parent()
+			top = maxf(top, box.end.y)
+		_tops[file] = top
+	return _tops[file]
 
-	for i in tower.level:
-		var ring := _part(root, _torus(0.5, 0.57), Color(1.0, 0.8, 0.25))
-		ring.position.y = 0.12 + i * 0.14
-	root.set_meta("top", float(def.top))
-	root.scale = Vector3.ONE * (1.0 + 0.08 * tower.level)
+
+## Glowing element orb floating above an Elemental tower, bobbing gently.
+func _orb(root: Node3D, element: String, top: float, level: int) -> void:
+	var color: Color = ELEMENT_COLORS.get(element, ELEMENT_COLORS[""])
+	var orb := _mesh(_sphere(0.12 + 0.04 * level), color.lightened(0.2), true)
+	orb.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var halo := _mesh(_sphere(0.22 + 0.06 * level), Color(color, 0.3), true)
+	halo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	orb.add_child(halo)
+	orb.position.y = top + 0.22
+	root.add_child(orb)
+	var tw := orb.create_tween().set_loops()
+	tw.tween_property(orb, "position:y", top + 0.32, 0.9).set_trans(Tween.TRANS_SINE)
+	tw.tween_property(orb, "position:y", top + 0.22, 0.9).set_trans(Tween.TRANS_SINE)
+	var light := OmniLight3D.new()
+	light.light_color = color
+	light.light_energy = 0.6 + 0.3 * level
+	light.omni_range = 1.6
+	orb.add_child(light)
+
+
+## Tower model on its cell; the model itself shows the level.
+func _tower_model(tower: Tower) -> Node3D:
+	var root := tower_preview(tower.kind, tower.level, tower.element())
+	root.position = cell_pos(tower.cell)
 	return root
 
 
@@ -416,7 +490,7 @@ func _on_tower_sold(tower: Tower, _refund: int) -> void:
 
 
 ## A short recoil on the tower. Shots with flight time are drawn from
-## game.projectiles; instant hits get a quick bolt.
+## game.projectiles; instant hits (lightning) get a bolt from the tower top.
 func _on_tower_fired(tower: Tower, creep: Creep, _damage: int) -> void:
 	var node_t: Node3D = _towers.get(tower.cell)
 	if node_t:
@@ -426,12 +500,7 @@ func _on_tower_fired(tower: Tower, creep: Creep, _damage: int) -> void:
 		tw.tween_property(node_t, "scale", base, 0.1)
 	if tower.stats().has("projectile_speed"):
 		return
-	var bolt := _mesh(_sphere(0.1), tower_color(tower.kind).lightened(0.3), true)
-	bolt.position = cell_pos(tower.cell, _tower_top(tower.cell))
-	add_child(bolt)
-	var tw2 := create_tween()
-	tw2.tween_property(bolt, "position", _hit_point(creep), 0.1)
-	tw2.tween_callback(bolt.queue_free)
+	_bolt(cell_pos(tower.cell, _tower_top(tower.cell)), _hit_point(creep), creep.id)
 	_flash(creep)
 
 
@@ -474,7 +543,8 @@ func _update_projectiles() -> void:
 		var f := clampf(done / (done + left + 0.0001), 0.0, 1.0)
 		var h0: float = node.get_meta("h0")
 		var h1 := creep_top(p.target) * 0.5 + (FLY_HEIGHT if p.target.flying else 0.0)
-		var arc := (0.35 if p.kind == "cannon" else 0.1) * (done + left) * sin(PI * f)
+		var high := p.kind == "earth" or p.stats.has("splash_radius")
+		var arc := (0.35 if high else 0.1) * (done + left) * sin(PI * f)
 		node.position = Vector3(pos.x, lerpf(h0, h1, f) + arc, pos.y)
 	for id: int in _projectiles.keys():
 		if not alive.has(id):
@@ -484,19 +554,63 @@ func _update_projectiles() -> void:
 
 func _projectile_node(p: Projectile) -> Node3D:
 	var node: Node3D
-	if p.kind == "cannon":
+	if p.kind == "earth" or p.element == "fire" and p.stats.has("splash_radius"):
 		node = _scene(CANNON_BALL).instantiate() as Node3D
+		if p.element == "fire":
+			node.add_child(_glow(ELEMENT_COLORS.fire, 0.25))
 	else:
-		var color := tower_color(p.kind)
-		var glow := _mesh(_sphere(0.09), color.lightened(0.45), true)
-		glow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		var halo := _mesh(_sphere(0.18), Color(color.lightened(0.3), 0.35), true)
-		halo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		glow.add_child(halo)
-		node = glow
+		node = _glow(shot_color(p.kind, p.element), 0.1)
 	node.set_meta("start", p.pos)
 	node.set_meta("h0", _tower_top(Vector2i(floori(p.pos.x), floori(p.pos.y))))
 	return node
+
+
+## Colour of a tower's shots: the element's colour, or the kind's.
+static func shot_color(kind: String, element: String) -> Color:
+	if kind == "elemental":
+		return ELEMENT_COLORS.get(element, ELEMENT_COLORS[""])
+	return tower_color(kind)
+
+
+func _glow(color: Color, radius: float) -> MeshInstance3D:
+	var glow := _mesh(_sphere(radius * 0.9), color.lightened(0.45), true)
+	glow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var halo := _mesh(_sphere(radius * 1.9), Color(color.lightened(0.3), 0.35), true)
+	halo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	glow.add_child(halo)
+	return glow
+
+
+func _on_chain_hit(from: Vector2, creep: Creep) -> void:
+	_bolt(Vector3(from.x, 0.5, from.y), _hit_point(creep), creep.id)
+	_flash(creep)
+
+
+## Jagged bolt of lightning between two points, gone after a moment.
+func _bolt(a: Vector3, b: Vector3, salt: int) -> void:
+	var mesh := ImmediateMesh.new()
+	mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = salt * 7919 + game.ticks
+	for i in 7:
+		var f := i / 6.0
+		var jitter := Vector3.ZERO
+		if i > 0 and i < 6:
+			jitter = Vector3(
+				rng.randf_range(-0.15, 0.15),
+				rng.randf_range(-0.1, 0.1),
+				rng.randf_range(-0.15, 0.15)
+			)
+		mesh.surface_add_vertex(a.lerp(b, f) + jitter)
+	mesh.surface_end()
+	var bolt := MeshInstance3D.new()
+	bolt.mesh = mesh
+	bolt.material_override = mat(ELEMENT_COLORS.lightning.lightened(0.3), true)
+	bolt.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(bolt)
+	var tw := create_tween()
+	tw.tween_interval(0.12)
+	tw.tween_callback(bolt.queue_free)
 
 
 func _on_projectile_hit(p: Projectile, creep: Creep) -> void:
