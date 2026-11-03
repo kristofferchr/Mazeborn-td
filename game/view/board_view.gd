@@ -32,19 +32,26 @@ const DEATH_TIME := 1.0  # seconds the death animation plays before the body sin
 const POISON_TINT := Color(0.3, 0.9, 0.2, 0.45)
 const SLOW_TINT := Color(0.5, 0.8, 1.0, 0.5)
 const FLY_HEIGHT := 1.1
-const PATH_COLOR := Color(0.95, 0.85, 0.45, 0.55)
-const OK_COLOR := Color(0.3, 1.0, 0.4, 0.5)
-const BAD_COLOR := Color(1.0, 0.25, 0.2, 0.5)
+const OK_COLOR := Color(0.35, 1.0, 0.55)
+const BAD_COLOR := Color(1.0, 0.3, 0.25)
+const SPAWN_COLOR := Color(0.85, 0.3, 1.0)
+const GOAL_COLOR := Color(0.35, 0.7, 1.0)
+const PLATEAU := 0.6  # height of the playfield above the land around it
+const SHADERS := "res://view/shaders/"
 
 var game: Game
 var _towers: Dictionary = {}  # Vector2i -> Node3D
 var _creeps: Dictionary = {}  # creep id -> Node3D
 var _creep_models: Dictionary = {}  # creep id -> CreepArt id
 var _scenes: Dictionary = {}  # path -> PackedScene
-var _path_root: Node3D
-var _ghost: MeshInstance3D
+var _path: MeshInstance3D
+var _ground: ShaderMaterial
+var _ghosts: Dictionary = {}  # kind -> translucent preview model
+var _ghost_ok := {}  # kind -> last preview colour state
+var _cell: MeshInstance3D
 var _ring: MeshInstance3D
-var _selection: MeshInstance3D
+var _projectiles: Dictionary = {}  # projectile id -> Node3D
+var _grid_alpha := 0.05
 
 
 static func cell_pos(cell: Vector2i, height := 0.0) -> Vector3:
@@ -77,20 +84,21 @@ static func mat(color: Color, unshaded := false) -> StandardMaterial3D:
 func setup(p_game: Game) -> void:
 	game = p_game
 	_build_world()
-	_path_root = Node3D.new()
-	add_child(_path_root)
-	_ghost = _mesh(_box(Vector3(0.9, 0.9, 0.9)), OK_COLOR, true)
-	_ring = _mesh(_ring_mesh(0.97, 1.0), Color(1, 1, 1, 0.6), true)
-	_selection = _mesh(_ring_mesh(0.45, 0.55), Color(1.0, 0.9, 0.3, 0.9), true)
-	for n: MeshInstance3D in [_ghost, _ring, _selection]:
+	_path = MeshInstance3D.new()
+	_path.material_override = _shader("path")
+	_path.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_path)
+	_cell = _shaded_plane(Vector2.ONE, "cell")
+	_ring = _shaded_plane(Vector2(2, 2), "ring")
+	for n: MeshInstance3D in [_cell, _ring]:
 		n.visible = false
-		n.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(n)
 	game.path_changed.connect(_draw_path)
 	game.tower_built.connect(_on_tower_built)
 	game.tower_upgraded.connect(_on_tower_upgraded)
 	game.tower_sold.connect(_on_tower_sold)
 	game.tower_fired.connect(_on_tower_fired)
+	game.projectile_hit.connect(_on_projectile_hit)
 	game.creep_spawned.connect(_on_creep_spawned)
 	game.creep_killed.connect(_on_creep_removed.bind(true))
 	game.creep_leaked.connect(_on_creep_removed.bind(false))
@@ -104,21 +112,49 @@ func creep_world_pos(creep: Creep) -> Vector3:
 	return Vector3(p.x, FLY_HEIGHT if creep.flying else 0.0, p.y)
 
 
-## Shows the build preview (green/red) for build_kind, the selected tower, or nothing.
+## Shows the build preview (a translucent tower, green or red) for build_kind,
+## the selected tower with its range, or nothing. The grid shows while selecting.
 func show_selection(cell: Vector2i, has_selection: bool, build_kind: String) -> void:
 	var tower := game.tower_at(cell) if has_selection else null
-	_ghost.visible = has_selection and tower == null
-	_selection.visible = tower != null
+	_cell.visible = has_selection
 	_ring.visible = has_selection
+	for kind: String in _ghosts:
+		_ghosts[kind].visible = false
+	_set_grid_alpha(0.16 if has_selection and tower == null else 0.05)
 	if not has_selection:
 		return
-	var ok := game.can_build(cell, build_kind)
-	_ghost.position = cell_pos(cell, 0.45)
-	(_ghost.material_override as StandardMaterial3D).albedo_color = OK_COLOR if ok else BAD_COLOR
-	_selection.position = cell_pos(cell, 0.03)
-	_ring.position = cell_pos(cell, 0.04)
+	var ok := tower != null or game.can_build(cell, build_kind)
+	var color := Color(1.0, 0.85, 0.35) if tower else (OK_COLOR if ok else BAD_COLOR)
+	(_cell.material_override as ShaderMaterial).set_shader_parameter("color", color)
+	(_ring.material_override as ShaderMaterial).set_shader_parameter("color", color)
+	_cell.position = cell_pos(cell, 0.03)
+	_ring.position = cell_pos(cell, 0.025)
 	var r := tower.attack_range() if tower else float(game.tower_level_stats(build_kind).range)
 	_ring.scale = Vector3(r, 1.0, r)
+	if tower == null:
+		var ghost := _ghost(build_kind)
+		ghost.visible = true
+		ghost.position = cell_pos(cell)
+		if _ghost_ok.get(build_kind) != ok:
+			_ghost_ok[build_kind] = ok
+			var m := mat(Color(color, 0.45), true)
+			for mesh: MeshInstance3D in ghost.find_children("*", "MeshInstance3D", true, false):
+				mesh.material_override = m
+
+
+func _ghost(kind: String) -> Node3D:
+	if not _ghosts.has(kind):
+		var ghost := tower_preview(kind)
+		for mesh: MeshInstance3D in ghost.find_children("*", "MeshInstance3D", true, false):
+			mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(ghost)
+		_ghosts[kind] = ghost
+	return _ghosts[kind]
+
+
+func _set_grid_alpha(a: float) -> void:
+	_grid_alpha = move_toward(_grid_alpha, a, 0.015)
+	_ground.set_shader_parameter("grid_alpha", _grid_alpha)
 
 
 func _process(_delta: float) -> void:
@@ -135,6 +171,7 @@ func _process(_delta: float) -> void:
 		if dir.length_squared() > 0.000001:
 			node.rotation.y = atan2(dir.x, dir.z)
 		_tint(node, creep)
+	_update_projectiles()
 
 
 ## Overlay tint: blue while slowed, green while poisoned, none otherwise.
@@ -155,54 +192,94 @@ func _tint(node: Node3D, creep: Creep) -> void:
 
 
 func _build_world() -> void:
-	var size := game.grid.size
-	# Playfield with a subtle checkerboard so cells are visible.
-	var img := Image.create(size.x, size.y, false, Image.FORMAT_RGB8)
-	for x in size.x:
-		for y in size.y:
-			var dark := (x + y) % 2 == 0
-			img.set_pixel(x, y, Color(0.33, 0.52, 0.24) if dark else Color(0.36, 0.56, 0.26))
-	var field := _mesh(_plane(Vector2(size)), Color.WHITE)
-	var m := field.material_override as StandardMaterial3D
-	m.albedo_texture = ImageTexture.create_from_image(img)
-	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	var size := Vector2(game.grid.size)
+	var noise := _noise_texture()
+	# Playfield on a raised plateau with a stone trim.
+	_ground = _shader("ground")
+	_ground.set_shader_parameter("noise", noise)
+	_ground.set_shader_parameter("field_size", size)
+	var field := MeshInstance3D.new()
+	field.mesh = _plane(size)
+	field.material_override = _ground
 	field.position = Vector3(size.x / 2.0, 0.0, size.y / 2.0)
 	add_child(field)
-	# Surrounding land and a low border.
-	var outer := _mesh(_plane(Vector2(size) + Vector2(40, 40)), Color(0.24, 0.38, 0.18))
-	outer.position = Vector3(size.x / 2.0, -0.02, size.y / 2.0)
+	var trim := _mesh(_box(Vector3(size.x + 0.5, PLATEAU, size.y + 0.5)), Color(0.5, 0.48, 0.44))
+	trim.position = Vector3(size.x / 2.0, -PLATEAU / 2.0 - 0.01, size.y / 2.0)
+	(trim.material_override as StandardMaterial3D).roughness = 0.9
+	add_child(trim)
+	var cliff := _mesh(_box(Vector3(size.x + 1.1, 0.25, size.y + 1.1)), Color(0.33, 0.3, 0.26))
+	cliff.position = Vector3(size.x / 2.0, -PLATEAU + 0.12, size.y / 2.0)
+	add_child(cliff)
+	# Land around it.
+	var outer_mat := _shader("outer")
+	outer_mat.set_shader_parameter("noise", noise)
+	var outer := MeshInstance3D.new()
+	outer.mesh = _plane(size + Vector2(80, 80))
+	outer.material_override = outer_mat
+	outer.position = Vector3(size.x / 2.0, -PLATEAU, size.y / 2.0)
 	add_child(outer)
-	for side in 4:
-		var horizontal := side < 2
-		var length := size.x + 0.6 if horizontal else size.y + 0.6
-		var wall := _mesh(
-			_box(Vector3(length, 0.3, 0.3) if horizontal else Vector3(0.3, 0.3, length)),
-			Color(0.45, 0.42, 0.38)
-		)
-		match side:
-			0:
-				wall.position = Vector3(size.x / 2.0, 0.15, -0.15)
-			1:
-				wall.position = Vector3(size.x / 2.0, 0.15, size.y + 0.15)
-			2:
-				wall.position = Vector3(-0.15, 0.15, size.y / 2.0)
-			3:
-				wall.position = Vector3(size.x + 0.15, 0.15, size.y / 2.0)
-		add_child(wall)
-	# Spawn and goal markers.
-	_marker(game.grid.spawn, Color(0.85, 0.3, 0.9))
-	_marker(game.grid.goal, Color(0.3, 0.6, 1.0))
+	_portal(game.grid.spawn, SPAWN_COLOR, 1.0, false)
+	_portal(game.grid.goal, GOAL_COLOR, -1.0, true)
 	_trees()
 
 
-func _marker(cell: Vector2i, color: Color) -> void:
-	var tile := _mesh(_box(Vector3(0.95, 0.06, 0.95)), color)
-	tile.position = cell_pos(cell, 0.03)
-	add_child(tile)
-	var portal := _mesh(_torus(0.32, 0.42), color)
-	portal.rotation_degrees = Vector3(0, 90, 90)
-	portal.position = cell_pos(cell, 0.45)
-	add_child(portal)
+func _noise_texture() -> NoiseTexture2D:
+	var n := FastNoiseLite.new()
+	n.seed = 7
+	n.frequency = 0.02
+	n.fractal_octaves = 3
+	var tex := NoiseTexture2D.new()
+	tex.width = 256
+	tex.height = 256
+	tex.seamless = true
+	tex.generate_mipmaps = true
+	tex.noise = n
+	return tex
+
+
+## Glowing swirl on the cell, a soft light and (for the goal) a beam of light.
+func _portal(cell: Vector2i, color: Color, direction: float, beam: bool) -> void:
+	var disk := _shaded_plane(Vector2(1.5, 1.5), "portal")
+	var m := disk.material_override as ShaderMaterial
+	m.set_shader_parameter("color", color)
+	m.set_shader_parameter("direction", direction)
+	disk.position = cell_pos(cell, 0.02)
+	add_child(disk)
+	var light := OmniLight3D.new()
+	light.light_color = color
+	light.light_energy = 1.6
+	light.omni_range = 2.6
+	light.position = cell_pos(cell, 0.6)
+	add_child(light)
+	if beam:
+		var b := MeshInstance3D.new()
+		var cyl := CylinderMesh.new()
+		cyl.top_radius = 0.45
+		cyl.bottom_radius = 0.5
+		cyl.height = 3.0
+		cyl.cap_top = false
+		cyl.cap_bottom = false
+		b.mesh = cyl
+		var bm := _shader("beam")
+		bm.set_shader_parameter("color", color)
+		b.material_override = bm
+		b.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		b.position = cell_pos(cell, 1.5)
+		add_child(b)
+
+
+func _shader(shader_name: String) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.shader = load(SHADERS + shader_name + ".gdshader")
+	return m
+
+
+func _shaded_plane(size: Vector2, shader: String) -> MeshInstance3D:
+	var n := MeshInstance3D.new()
+	n.mesh = _plane(size)
+	n.material_override = _shader(shader)
+	n.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return n
 
 
 ## Trees around the playfield (decoration only, fixed seed).
@@ -212,13 +289,13 @@ func _trees() -> void:
 	var size := Vector2(game.grid.size)
 	for i in 140:
 		var p := Vector2(rng.randf_range(-8.0, size.x + 8.0), rng.randf_range(-6.0, size.y + 6.0))
-		if p.x > -1.0 and p.x < size.x + 1.0 and p.y > -1.0 and p.y < size.y + 1.0:
+		if p.x > -1.6 and p.x < size.x + 1.6 and p.y > -1.6 and p.y < size.y + 1.6:
 			continue
 		var file: String = TREE_MODELS[rng.randi() % TREE_MODELS.size()]
 		var tree := _scene(MEDIEVAL + file).instantiate() as Node3D
 		tree.scale = Vector3.ONE * rng.randf_range(1.1, 1.6)
 		tree.rotation.y = rng.randf() * TAU
-		tree.position = Vector3(p.x, 0.0, p.y)
+		tree.position = Vector3(p.x, -PLATEAU, p.y)
 		add_child(tree)
 
 
@@ -228,25 +305,46 @@ func _scene(path: String) -> PackedScene:
 	return _scenes[path]
 
 
+## Ribbon along the creep path (mitred strip through the cell centres).
 func _draw_path() -> void:
-	for child in _path_root.get_children():
-		child.queue_free()
 	var path := game.grid.path()
-	var dot_mat := mat(PATH_COLOR, true)
-	for i in range(1, path.size() - 1):
-		var a := BoardView.cell_pos(path[i], 0.02)
-		var dot := MeshInstance3D.new()
-		dot.mesh = _box(Vector3(0.22, 0.02, 0.22))
-		dot.material_override = dot_mat
-		dot.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		dot.position = a
-		_path_root.add_child(dot)
-		# Half-way dash towards the next cell.
-		var b := BoardView.cell_pos(path[i + 1], 0.02)
-		var dash := dot.duplicate() as MeshInstance3D
-		dash.position = a.lerp(b, 0.5)
-		dash.scale = Vector3(0.6, 1.0, 0.6)
-		_path_root.add_child(dash)
+	if path.size() < 2:
+		_path.mesh = null
+		return
+	var pts: Array[Vector2] = []
+	for c in path:
+		pts.append(Grid.center(c))
+	var half := 0.22
+	var verts := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var dist := 0.0
+	for i in pts.size():
+		var prev := pts[maxi(i - 1, 0)]
+		var next := pts[mini(i + 1, pts.size() - 1)]
+		var dir := (next - prev).normalized()
+		var normal := Vector2(-dir.y, dir.x)
+		var miter := half
+		if i > 0 and i < pts.size() - 1:
+			var d1 := (pts[i] - prev).normalized()
+			miter = half / maxf(normal.dot(Vector2(-d1.y, d1.x)), 0.5)
+		if i > 0:
+			dist += pts[i].distance_to(pts[i - 1])
+		for side: float in [-1.0, 1.0]:
+			var p := pts[i] + normal * miter * side
+			verts.append(Vector3(p.x, 0.015, p.y))
+			uvs.append(Vector2(dist, (side + 1.0) / 2.0))
+	var idx := PackedInt32Array()
+	for i in pts.size() - 1:
+		var a := i * 2
+		idx.append_array([a, a + 1, a + 2, a + 1, a + 3, a + 2])
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_INDEX] = idx
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	_path.mesh = mesh
 
 
 ## Main colour of a tower kind (also used by the HUD buttons).
@@ -259,6 +357,7 @@ func _on_tower_built(tower: Tower) -> void:
 	add_child(root)
 	_towers[tower.cell] = root
 	var full := root.scale
+	root.set_meta("full", full)
 	root.scale = Vector3(full.x, 0.1, full.z)
 	create_tween().tween_property(root, "scale", full, 0.15)
 
@@ -271,18 +370,29 @@ func _on_tower_upgraded(tower: Tower) -> void:
 	add_child(root)
 	_towers[tower.cell] = root
 	var full := root.scale
+	root.set_meta("full", full)
 	root.scale = full * 1.25
 	create_tween().tween_property(root, "scale", full, 0.2)
 
 
-## KayKit model per kind; gold rings at the base show the level.
-func _tower_model(tower: Tower) -> Node3D:
+## The KayKit model of a tower kind at the origin (also used for the build
+## preview and the HUD thumbnails).
+func tower_preview(kind: String) -> Node3D:
 	var root := Node3D.new()
-	root.position = cell_pos(tower.cell)
-	var def: Dictionary = TOWER_MODELS.get(tower.kind, TOWER_MODELS.stone)
+	var def: Dictionary = TOWER_MODELS.get(kind, TOWER_MODELS.stone)
 	var model := _scene(MEDIEVAL + str(def.file)).instantiate() as Node3D
 	model.scale = Vector3.ONE * float(def.scale)
 	root.add_child(model)
+	root.set_meta("top", float(def.top))
+	return root
+
+
+## Tower model with gold rings at the base for the level.
+func _tower_model(tower: Tower) -> Node3D:
+	var root := tower_preview(tower.kind)
+	root.position = cell_pos(tower.cell)
+	var def: Dictionary = TOWER_MODELS.get(tower.kind, TOWER_MODELS.stone)
+
 	for i in tower.level:
 		var ring := _part(root, _torus(0.5, 0.57), Color(1.0, 0.8, 0.25))
 		ring.position.y = 0.12 + i * 0.14
@@ -305,32 +415,95 @@ func _on_tower_sold(tower: Tower, _refund: int) -> void:
 		node.queue_free()
 
 
+## A short recoil on the tower. Shots with flight time are drawn from
+## game.projectiles; instant hits get a quick bolt.
 func _on_tower_fired(tower: Tower, creep: Creep, _damage: int) -> void:
-	var color := tower_color(tower.kind).lightened(0.3)
-	var bolt: Node3D
-	if tower.kind == "cannon":
-		bolt = _scene(CANNON_BALL).instantiate() as Node3D
-	else:
-		var glow := _mesh(_sphere(0.1), color, true)
-		glow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		bolt = glow
 	var node_t: Node3D = _towers.get(tower.cell)
-	var top: float = node_t.get_meta("top", 1.45) if node_t else 1.45
-	bolt.position = cell_pos(tower.cell, top)
+	if node_t:
+		var base: Vector3 = node_t.get_meta("full", node_t.scale)
+		var tw := create_tween()
+		tw.tween_property(node_t, "scale", base * Vector3(1.06, 0.94, 1.06), 0.05)
+		tw.tween_property(node_t, "scale", base, 0.1)
+	if tower.stats().has("projectile_speed"):
+		return
+	var bolt := _mesh(_sphere(0.1), tower_color(tower.kind).lightened(0.3), true)
+	bolt.position = cell_pos(tower.cell, _tower_top(tower.cell))
 	add_child(bolt)
-	var target := creep_world_pos(creep) + Vector3(0.0, creep_top(creep) * 0.5, 0.0)
-	var tw := create_tween()
-	tw.tween_property(bolt, "position", target, 0.1)
-	tw.tween_callback(bolt.queue_free)
-	var stats := tower.stats()
-	if stats.has("splash_radius"):
-		_splash(target, float(stats.splash_radius), color)
+	var tw2 := create_tween()
+	tw2.tween_property(bolt, "position", _hit_point(creep), 0.1)
+	tw2.tween_callback(bolt.queue_free)
+	_flash(creep)
+
+
+func _tower_top(cell: Vector2i) -> float:
+	var node_t: Node3D = _towers.get(cell)
+	if node_t == null:
+		return 1.45
+	return node_t.get_meta("top", 1.45) * node_t.get_meta("full", node_t.scale).y
+
+
+func _hit_point(creep: Creep) -> Vector3:
+	return creep_world_pos(creep) + Vector3(0.0, creep_top(creep) * 0.5, 0.0)
+
+
+## Squash the creep model briefly when it is hit.
+func _flash(creep: Creep) -> void:
 	var node: Node3D = _creeps.get(creep.id)
 	if node and creep.alive():
 		var body := node.get_node("Body") as Node3D
 		var flash := create_tween()
 		flash.tween_property(body, "scale", Vector3(1.25, 0.8, 1.25), 0.05)
 		flash.tween_property(body, "scale", Vector3.ONE, 0.08)
+
+
+## Draws the projectiles in flight: interpolated, from the tower top down to
+## the target, cannon balls on a high arc.
+func _update_projectiles() -> void:
+	var a := clampf(game.alpha(), 0.0, 1.0)
+	var alive := {}
+	for p in game.projectiles:
+		alive[p.id] = true
+		var node: Node3D = _projectiles.get(p.id)
+		if node == null:
+			node = _projectile_node(p)
+			add_child(node)
+			_projectiles[p.id] = node
+		var pos := p.prev_pos.lerp(p.pos, a)
+		var done: float = node.get_meta("start").distance_to(pos)
+		var left := pos.distance_to(p.target_pos)
+		var f := clampf(done / (done + left + 0.0001), 0.0, 1.0)
+		var h0: float = node.get_meta("h0")
+		var h1 := creep_top(p.target) * 0.5 + (FLY_HEIGHT if p.target.flying else 0.0)
+		var arc := (0.35 if p.kind == "cannon" else 0.1) * (done + left) * sin(PI * f)
+		node.position = Vector3(pos.x, lerpf(h0, h1, f) + arc, pos.y)
+	for id: int in _projectiles.keys():
+		if not alive.has(id):
+			_projectiles[id].queue_free()
+			_projectiles.erase(id)
+
+
+func _projectile_node(p: Projectile) -> Node3D:
+	var node: Node3D
+	if p.kind == "cannon":
+		node = _scene(CANNON_BALL).instantiate() as Node3D
+	else:
+		var color := tower_color(p.kind)
+		var glow := _mesh(_sphere(0.09), color.lightened(0.45), true)
+		glow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var halo := _mesh(_sphere(0.18), Color(color.lightened(0.3), 0.35), true)
+		halo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		glow.add_child(halo)
+		node = glow
+	node.set_meta("start", p.pos)
+	node.set_meta("h0", _tower_top(Vector2i(floori(p.pos.x), floori(p.pos.y))))
+	return node
+
+
+func _on_projectile_hit(p: Projectile, creep: Creep) -> void:
+	if p.stats.has("splash_radius"):
+		_splash(Vector3(p.pos.x, 0.0, p.pos.y), float(p.stats.splash_radius), Color(1, 0.8, 0.5))
+	if creep:
+		_flash(creep)
 
 
 ## Expanding ring where a cannon ball lands.
