@@ -184,11 +184,14 @@ func test_next_wave_is_shown_before_and_during_waves() -> void:
 
 func test_default_data_is_consistent() -> void:
 	var g := Game.create_default()
-	t.eq(g.tower_order.size(), 5, "five tower kinds")
+	t.eq(g.tower_order, ["arrow", "earth", "wind", "elemental"] as Array[String], "four kinds")
 	for kind in g.tower_order:
-		t.check(g.tower_defs.has(kind), "%s defined" % kind)
-		t.eq(g.tower_defs[kind].levels.size(), 3, "%s has 3 levels" % kind)
-	t.check(g.can_afford("stone"), "can afford a tower at start")
+		var def: Dictionary = g.tower_defs[kind]
+		t.check(def.nodes.has(def.root), "%s has its root" % kind)
+		for id: String in def.nodes:
+			for next: String in def.nodes[id].get("next", []):
+				t.check(def.nodes.has(next), "%s -> %s exists" % [id, next])
+	t.check(g.can_afford("arrow"), "can afford a tower at start")
 	for w in g.waves:
 		for group in Game.wave_groups(w):
 			t.check(g.creep_defs.has(str(group.creep)), "creep %s defined" % group.creep)

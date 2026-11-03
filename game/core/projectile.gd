@@ -6,6 +6,7 @@ extends RefCounted
 
 var id: int
 var kind: String  # tower kind that fired it
+var element: String  # element of the node that fired it ("" for none)
 var pos: Vector2
 var prev_pos: Vector2  # position at the start of the last tick (for interpolation)
 var target: Creep
@@ -20,6 +21,7 @@ var hits_air: bool
 func _init(p_id: int, tower: Tower, p_target: Creep, p_damage: int) -> void:
 	id = p_id
 	kind = tower.kind
+	element = tower.element()
 	pos = Grid.center(tower.cell)
 	prev_pos = pos
 	target = p_target

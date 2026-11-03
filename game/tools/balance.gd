@@ -66,35 +66,43 @@ func _build_next(g: Game, plan: Array[Vector2i]) -> bool:
 	return false
 
 
+## Cheapest upgrade first. Elemental towers take their element by position in
+## the maze (so a round tries all of them) and the first specialisation.
 func _upgrade_cheapest(g: Game) -> bool:
 	var best := Vector2i(-1, -1)
+	var best_option := ""
 	var best_cost := 1 << 30
 	for cell: Vector2i in g.towers:
 		var tower: Tower = g.towers[cell]
-		if tower.can_upgrade() and tower.upgrade_cost() < best_cost:
+		var options := tower.upgrade_options()
+		if options.is_empty():
+			continue
+		var option := (
+			options[(cell.x + cell.y) % options.size()] if tower.level == 0 else options[0]
+		)
+		if tower.upgrade_cost(option) < best_cost:
 			best = cell
-			best_cost = tower.upgrade_cost()
-	return best.x >= 0 and g.upgrade(best)
+			best_option = option
+			best_cost = tower.upgrade_cost(option)
+	return best.x >= 0 and g.upgrade(best, best_option)
 
 
-## Stone for the first wall (cheap mazing), then a mix along the maze.
+## Arrow for the first wall (cheap mazing), then a mix along the maze.
 func _kind_for(i: int) -> String:
 	if i < 11:
-		return "stone"
+		return "arrow"
 	if i % 5 == 2:
-		return "cannon"
-	if i % 7 == 3:
-		return "frost"
-	if i % 9 == 4:
-		return "poison"
-	return "stone"
+		return "earth"
+	if i % 6 == 3:
+		return "elemental"
+	return "arrow"
 
 
 ## Air towers next to the straight line flyers take from spawn to goal.
 func _air_towers(g: Game) -> void:
 	var have := 0
 	for cell: Vector2i in g.towers:
-		if g.towers[cell].kind == "air":
+		if g.towers[cell].kind == "wind":
 			have += 1
 	var a := Grid.center(g.grid.spawn)
 	var b := Grid.center(g.grid.goal)
@@ -107,9 +115,9 @@ func _air_towers(g: Game) -> void:
 			return _line_dist(Grid.center(p), a, b) < _line_dist(Grid.center(q), a, b)
 	)
 	for cell in cells:
-		if have >= AIR_FOR_FLYERS or not g.can_afford("air"):
+		if have >= AIR_FOR_FLYERS or not g.can_afford("wind"):
 			return
-		if cell.x % 3 == 0 and g.build(cell, "air") != null:
+		if cell.x % 3 == 0 and g.build(cell, "wind") != null:
 			have += 1
 
 

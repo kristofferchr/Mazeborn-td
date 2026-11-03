@@ -8,8 +8,26 @@ func _level(cost: int, damage: int, extra := {}) -> Dictionary:
 	var l := {
 		"cost": cost, "range": 2.5, "damage_min": damage, "damage_max": damage, "cooldown": 0.5
 	}
-	l.merge(extra)
+	l.merge(extra, true)
 	return l
+
+
+## A tower kind whose upgrade tree is a straight line through the given levels.
+func _linear(levels: Array, extra := {}) -> Dictionary:
+	var nodes := {}
+	for i in levels.size():
+		var n: Dictionary = levels[i].duplicate()
+		if i + 1 < levels.size():
+			n["next"] = ["l%d" % (i + 1)]
+		nodes["l%d" % i] = n
+	var def := {"root": "l0", "nodes": nodes}
+	def.merge(extra)
+	return def
+
+
+## Stats of a kind's root node in a game (to tweak them in tests).
+func _root(g: Game, kind: String) -> Dictionary:
+	return g.tower_base_stats(kind)
 
 
 func _config(waves: Array, gold := 100) -> Dictionary:
@@ -22,17 +40,15 @@ func _config(waves: Array, gold := 100) -> Dictionary:
 			"order": ["stone", "cannon", "frost", "poison", "air"],
 			"towers":
 			{
-				"stone": {"levels": [_level(10, 10), _level(20, 30)]},
-				"cannon":
-				{"levels": [_level(20, 20, {"splash_radius": 1.5, "splash_factor": 0.5})]},
-				"frost": {"levels": [_level(10, 1, {"slow": 0.5, "slow_time": 1.0})]},
+				"stone": _linear([_level(10, 10), _level(20, 30)]),
+				"cannon": _linear([_level(20, 20, {"splash_radius": 1.5, "splash_factor": 0.5})]),
+				"frost": _linear([_level(10, 1, {"slow": 0.5, "slow_time": 1.0})]),
 				"poison":
-				{
-					"targets": ["ground", "air"],
-					"levels":
+				_linear(
 					[_level(10, 0, {"poison_dps": 10, "poison_time": 2.0, "poison_stacks": 2})],
-				},
-				"air": {"targets": ["air"], "levels": [_level(10, 10)]},
+					{"targets": ["ground", "air"]}
+				),
+				"air": _linear([_level(10, 10)], {"targets": ["air"]}),
 			},
 		},
 		"creeps":
@@ -151,7 +167,7 @@ func test_cannot_trap_creep_in_a_pocket() -> void:
 
 func test_targeting_first_and_closest() -> void:
 	var def: Dictionary = _config([]).towers.towers.stone
-	def.levels[0].range = 10.0
+	def.nodes.l0.range = 10.0
 	var tower := Tower.new(Vector2i(3, 0), "stone", def)
 	var near := Creep.new(1, 10, 1, 1, Vector2i(3, 1))
 	near.set_path([Vector2i(3, 1), Vector2i(4, 1), Vector2i(5, 1), Vector2i(6, 1)])
@@ -172,8 +188,8 @@ func test_wave_simulation_is_deterministic_with_seed() -> void:
 
 func _summary(seed_value: int) -> Array:
 	var g := _game([_wave(10, 30, 1.5, 3), _wave(1, 10)], 20, seed_value)
-	g.tower_defs.stone.levels[0].damage_min = 5
-	g.tower_defs.stone.levels[0].damage_max = 15
+	_root(g, "stone").damage_min = 5
+	_root(g, "stone").damage_max = 15
 	g.build(Vector2i(2, 0))
 	g.build(Vector2i(4, 2))
 	g.start_wave()
@@ -184,7 +200,7 @@ func _summary(seed_value: int) -> Array:
 func test_default_config_loads() -> void:
 	var g := Game.create_default()
 	t.check(g.waves.size() >= 5, "has waves")
-	t.check(g.can_afford("stone"), "can afford a tower")
+	t.check(g.can_afford("arrow"), "can afford a tower")
 	t.eq(g.lives, 20, "lives")
 	t.check(not g.grid.path().is_empty(), "map has a path")
 
