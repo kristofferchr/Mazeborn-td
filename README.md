@@ -4,7 +4,7 @@ Tower defense for iOS i klassisk Warcraft 3-stil: 3D-grafikk oppå 2D-logikk på
 
 - Teknologivalg og plan: issue #1
 - iOS-bygg og TestFlight via GitHub Actions (ingen mac): [`docs/ios-build.md`](docs/ios-build.md)
-- 3D-grafikk, kandidater og lisenser: [`docs/art-assets.md`](docs/art-assets.md)
+- 3D-grafikk, kandidater og lisenser: [`docs/art-assets.md`](docs/art-assets.md) og [`CREDITS.md`](CREDITS.md)
 - Spillbar web-versjon: https://kristofferchr.github.io/Mazeborn-td/ (PR-er får egen lenke i en kommentar)
 
 ## Struktur

@@ -394,7 +394,7 @@ func _draw_bars() -> void:
 	for creep in game.creeps:
 		var world := board.creep_world_pos(creep)
 		var scale := BoardView.creep_scale(creep)
-		world.y += (0.5 if creep.flying else 0.85) * scale
+		world.y += board.creep_top(creep) + 0.15
 		if camera.is_position_behind(world):
 			continue
 		var p := camera.unproject_position(world)

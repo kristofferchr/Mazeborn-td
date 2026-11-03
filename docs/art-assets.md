@@ -63,7 +63,35 @@ Trekanter og animasjoner er målt i Godot, og antall ben er lest fra glTF-filene
 - **En felles shader** (myk lambert, svak rim og maske for team-farge) som binder stilene sammen.
 - **Ikke** QAL-pakker eller kjøpte pakker så lenge repoet er offentlig.
 
-## Åpne spørsmål
+## Valgt (i bruk i spillet)
 
-- Skal lesbarheten løses med større fiender, et kamera som starter nærmere inn, eller begge?
-- Tema for fiendene: dyr og monstre som vanlige fiender og skjeletter som bosser, eller noe annet?
+Spørsmålene er avklart: fiendene gjøres større, og vanlige fiender er dyr og monstre, mens bossene er skjeletter.
+
+**Fiender** (`game/assets/creeps/`, tabellen i `game/view/creep_art.gd`). Hver gruppe i `game/data/waves.json` velger modell med `model`. Uten `model` får gruppen standardmodellen for fiendetypen (`CreepArt.KIND_MODELS`).
+
+| Type | Modeller (bølge) |
+|---|---|
+| Vanlig | rotte (1, 6), slim (2), T-rex (11) |
+| Rask | edderkopp (3), velociraptor (6, 9) |
+| Pansret | KayKit Skeleton_Minion (4), stegosaurus (7), triceratops (10) |
+| Flygende | flaggermus (5), drage (8), veps (10) |
+| Boss | KayKit Skeleton_Warrior (12) |
+
+- **Størrelse:** fiendene er 1,2–2 ruter store. Bossen blir i tillegg 1,4 ganger større, og andre fiender blir opptil 1,15 ganger større etter helse.
+- **Fiender som bremses eller forgiftes** får en blå eller grønn overlay.
+- **Tårn** (`game/assets/kaykit_medieval/`):
+
+  | Tårn | KayKit-modell |
+  |---|---|
+  | Stein | `building_tower_A_red` |
+  | Kanon | `building_tower_catapult_yellow` |
+  | Frost | `building_tower_B_blue` |
+  | Gift | `building_tower_B_green` |
+  | Luft | `building_archeryrange_yellow` |
+
+  Gullringer ved foten viser nivået. Kanonen skyter `projectile_catapult`.
+- **Trær:** fem tremodeller fra samme pakke.
+- **Ikke med:** Quaternius-skjelettet. Løpeanimasjonen så ut som om det lå flatt.
+- **Sjekk:** `scripts/screenshot.sh out.png res://tools/creeps.tscn 30 2532x1170` viser alle fiendetypene og alle tårntypene i alle nivåer. `CREEPS_DIST=9 CREEPS_X=5 CREEPS_Z=4.5` gir nærbilde. `tests/view/test_creep_art.gd` sjekker modellvalget og at alle modellene har gå- og dø-animasjon.
+
+Lisensene står i `CREDITS.md`.
