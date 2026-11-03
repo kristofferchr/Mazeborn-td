@@ -3,6 +3,8 @@
 	"lives": 20,
 	"wave_bonus": 5,
 	"early_bonus": 5,
+	"interest_rate": 0.05,
+	"interest_max": 15,
 	"waves": [
 		{"groups": [{"creep": "normal", "model": "rat", "count": 10, "hp": 35, "interval": 1.0, "bounty": 3}]},
 		{"groups": [{"creep": "normal", "model": "slime", "count": 12, "hp": 50, "interval": 0.9, "bounty": 3}]},

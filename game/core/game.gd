@@ -15,6 +15,8 @@ signal tower_built(tower: Tower)
 signal tower_upgraded(tower: Tower)
 signal tower_sold(tower: Tower, refund: int)
 signal tower_fired(tower: Tower, creep: Creep, damage: int)
+signal projectile_hit(projectile: Projectile, creep: Creep)  # creep is null on a miss
+signal gold_bonus(amount: int, reason: String)  # wave bonus, interest, early send
 signal creep_spawned(creep: Creep)
 signal creep_killed(creep: Creep)
 signal creep_leaked(creep: Creep)
@@ -43,6 +45,9 @@ var wave_bonus: int
 var early_bonus: int
 var creeps: Array[Creep] = []
 var towers: Dictionary = {}  # Vector2i -> Tower
+var projectiles: Array[Projectile] = []
+var interest_rate: float  # share of unspent gold paid when a wave is cleared
+var interest_max: int
 var ticks := 0
 var rng := RandomNumberGenerator.new()
 
@@ -50,6 +55,7 @@ var _accumulator := 0.0
 var _queue: Array[Dictionary] = []  # groups left to spawn: {group, left}
 var _spawn_timer := 0.0
 var _next_creep_id := 1
+var _next_projectile_id := 1
 
 
 func _init(config: Dictionary, p_grid: Grid, seed_value := 1) -> void:
@@ -59,6 +65,8 @@ func _init(config: Dictionary, p_grid: Grid, seed_value := 1) -> void:
 	lives = int(config.lives)
 	wave_bonus = int(config.get("wave_bonus", 0))
 	early_bonus = int(config.get("early_bonus", 0))
+	interest_rate = float(config.get("interest_rate", 0.0))
+	interest_max = int(config.get("interest_max", 0))
 	tower_defs = config.towers.towers
 	refund_rate = float(config.towers.refund)
 	for kind: Variant in config.towers.get("order", tower_defs.keys()):
@@ -189,8 +197,9 @@ func can_send_early() -> bool:
 func start_wave() -> bool:
 	if not can_start_wave():
 		return false
-	if phase == Phase.WAVE:
+	if phase == Phase.WAVE and early_bonus > 0:
 		_add_gold(early_bonus)
+		gold_bonus.emit(early_bonus, "early")
 	wave += 1
 	phase = Phase.WAVE
 	for group: Dictionary in wave_groups(waves[wave - 1]):
@@ -275,6 +284,7 @@ func step() -> void:
 	_move_creeps()
 	if phase == Phase.LOST:
 		return
+	_move_projectiles()
 	_fire_towers()
 	_check_wave_end()
 
@@ -348,20 +358,41 @@ func _fire_towers() -> void:
 func _attack(tower: Tower, target: Creep) -> void:
 	var s := tower.stats()
 	var damage := rng.randi_range(int(s.damage_min), int(s.damage_max))
-	var dealt := int(target.hit(damage))
-	tower_fired.emit(tower, target, dealt)
+	tower_fired.emit(tower, target, damage)
+	if s.has("projectile_speed"):
+		projectiles.append(Projectile.new(_next_projectile_id, tower, target, damage))
+		_next_projectile_id += 1
+	else:
+		_impact(s, damage, target, target.pos, tower.can_hit)
+
+
+func _move_projectiles() -> void:
+	for p in projectiles.duplicate():
+		var alive: bool = p.target.alive() and p.target in creeps
+		if not p.advance(DT, alive):
+			continue
+		projectiles.erase(p)
+		_impact(p.stats, p.damage, p.target if alive else null, p.pos, p.can_hit)
+		projectile_hit.emit(p, p.target if alive else null)
+	_reap()
+
+
+## Damage and effects of a hit on target (may be null: splash only) at `at`.
+func _impact(s: Dictionary, damage: int, target: Creep, at: Vector2, can_hit: Callable) -> void:
+	if target:
+		target.hit(damage)
+		if s.has("slow"):
+			target.apply_slow(float(s.slow), float(s.slow_time))
+		if s.has("poison_dps"):
+			target.apply_poison(
+				float(s.poison_dps), float(s.poison_time), int(s.get("poison_stacks", 1))
+			)
 	if s.has("splash_radius"):
 		var radius := float(s.splash_radius)
 		for other in creeps:
-			if other != target and other.alive() and tower.can_hit(other):
-				if other.pos.distance_to(target.pos) <= radius:
+			if other != target and other.alive() and can_hit.call(other):
+				if other.pos.distance_to(at) <= radius:
 					other.hit(damage * float(s.splash_factor))
-	if s.has("slow"):
-		target.apply_slow(float(s.slow), float(s.slow_time))
-	if s.has("poison_dps"):
-		target.apply_poison(
-			float(s.poison_dps), float(s.poison_time), int(s.get("poison_stacks", 1))
-		)
 
 
 ## Removes dead creeps and pays their bounty.
@@ -376,7 +407,13 @@ func _reap() -> void:
 func _check_wave_end() -> void:
 	if phase != Phase.WAVE or not _queue.is_empty() or not creeps.is_empty():
 		return
-	_add_gold(wave_bonus)
+	if wave_bonus > 0:
+		_add_gold(wave_bonus)
+		gold_bonus.emit(wave_bonus, "wave")
+	var interest := mini(floori(gold * interest_rate), interest_max)
+	if interest > 0:
+		_add_gold(interest)
+		gold_bonus.emit(interest, "interest")
 	wave_cleared.emit(wave)
 	if wave >= waves.size():
 		phase = Phase.WON

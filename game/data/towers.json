@@ -6,45 +6,45 @@
 			"name": "Steintårn",
 			"targets": ["ground"],
 			"levels": [
-				{"cost": 10, "range": 3.0, "damage_min": 7, "damage_max": 11, "cooldown": 0.8},
-				{"cost": 20, "range": 3.2, "damage_min": 16, "damage_max": 22, "cooldown": 0.75},
-				{"cost": 45, "range": 3.5, "damage_min": 34, "damage_max": 46, "cooldown": 0.7}
+				{"cost": 10, "range": 3.0, "damage_min": 7, "damage_max": 11, "cooldown": 0.8, "projectile_speed": 12},
+				{"cost": 20, "range": 3.2, "damage_min": 16, "damage_max": 22, "cooldown": 0.75, "projectile_speed": 12},
+				{"cost": 45, "range": 3.5, "damage_min": 34, "damage_max": 46, "cooldown": 0.7, "projectile_speed": 12}
 			]
 		},
 		"cannon": {
 			"name": "Kanontårn",
 			"targets": ["ground"],
 			"levels": [
-				{"cost": 25, "range": 2.6, "damage_min": 22, "damage_max": 30, "cooldown": 1.8, "splash_radius": 1.2, "splash_factor": 0.6},
-				{"cost": 40, "range": 2.8, "damage_min": 45, "damage_max": 60, "cooldown": 1.7, "splash_radius": 1.4, "splash_factor": 0.6},
-				{"cost": 80, "range": 3.0, "damage_min": 95, "damage_max": 120, "cooldown": 1.6, "splash_radius": 1.6, "splash_factor": 0.7}
+				{"cost": 25, "range": 2.6, "damage_min": 22, "damage_max": 30, "cooldown": 1.8, "splash_radius": 1.2, "splash_factor": 0.6, "projectile_speed": 7},
+				{"cost": 40, "range": 2.8, "damage_min": 45, "damage_max": 60, "cooldown": 1.7, "splash_radius": 1.4, "splash_factor": 0.6, "projectile_speed": 7},
+				{"cost": 80, "range": 3.0, "damage_min": 95, "damage_max": 120, "cooldown": 1.6, "splash_radius": 1.6, "splash_factor": 0.7, "projectile_speed": 7}
 			]
 		},
 		"frost": {
 			"name": "Frosttårn",
 			"targets": ["ground"],
 			"levels": [
-				{"cost": 20, "range": 2.5, "damage_min": 2, "damage_max": 4, "cooldown": 1.0, "slow": 0.35, "slow_time": 2.0},
-				{"cost": 30, "range": 2.8, "damage_min": 5, "damage_max": 8, "cooldown": 0.9, "slow": 0.45, "slow_time": 2.5},
-				{"cost": 50, "range": 3.1, "damage_min": 10, "damage_max": 14, "cooldown": 0.8, "slow": 0.55, "slow_time": 3.0}
+				{"cost": 20, "range": 2.5, "damage_min": 2, "damage_max": 4, "cooldown": 1.0, "slow": 0.35, "slow_time": 2.0, "projectile_speed": 10},
+				{"cost": 30, "range": 2.8, "damage_min": 5, "damage_max": 8, "cooldown": 0.9, "slow": 0.45, "slow_time": 2.5, "projectile_speed": 10},
+				{"cost": 50, "range": 3.1, "damage_min": 10, "damage_max": 14, "cooldown": 0.8, "slow": 0.55, "slow_time": 3.0, "projectile_speed": 10}
 			]
 		},
 		"poison": {
 			"name": "Gifttårn",
 			"targets": ["ground", "air"],
 			"levels": [
-				{"cost": 20, "range": 2.8, "damage_min": 1, "damage_max": 2, "cooldown": 1.0, "poison_dps": 6, "poison_time": 4.0, "poison_stacks": 4},
-				{"cost": 35, "range": 3.0, "damage_min": 2, "damage_max": 4, "cooldown": 0.9, "poison_dps": 12, "poison_time": 4.0, "poison_stacks": 5},
-				{"cost": 60, "range": 3.2, "damage_min": 4, "damage_max": 6, "cooldown": 0.8, "poison_dps": 24, "poison_time": 4.0, "poison_stacks": 6}
+				{"cost": 20, "range": 2.8, "damage_min": 1, "damage_max": 2, "cooldown": 1.0, "poison_dps": 6, "poison_time": 4.0, "poison_stacks": 4, "projectile_speed": 9},
+				{"cost": 35, "range": 3.0, "damage_min": 2, "damage_max": 4, "cooldown": 0.9, "poison_dps": 12, "poison_time": 4.0, "poison_stacks": 5, "projectile_speed": 9},
+				{"cost": 60, "range": 3.2, "damage_min": 4, "damage_max": 6, "cooldown": 0.8, "poison_dps": 24, "poison_time": 4.0, "poison_stacks": 6, "projectile_speed": 9}
 			]
 		},
 		"air": {
 			"name": "Lufttårn",
 			"targets": ["air"],
 			"levels": [
-				{"cost": 15, "range": 3.5, "damage_min": 18, "damage_max": 24, "cooldown": 0.5},
-				{"cost": 30, "range": 3.8, "damage_min": 38, "damage_max": 50, "cooldown": 0.45},
-				{"cost": 55, "range": 4.2, "damage_min": 80, "damage_max": 100, "cooldown": 0.4}
+				{"cost": 15, "range": 3.5, "damage_min": 18, "damage_max": 24, "cooldown": 0.5, "projectile_speed": 16},
+				{"cost": 30, "range": 3.8, "damage_min": 38, "damage_max": 50, "cooldown": 0.45, "projectile_speed": 16},
+				{"cost": 55, "range": 4.2, "damage_min": 80, "damage_max": 100, "cooldown": 0.4, "projectile_speed": 16}
 			]
 		}
 	}

@@ -151,18 +151,32 @@ func _toggle_speed() -> void:
 
 
 func _build_environment() -> void:
+	# Warm late-afternoon sun with soft shadows, cool sky fill light.
 	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-55.0, 35.0, 0.0)
-	sun.light_energy = 1.1
+	sun.rotation_degrees = Vector3(-50.0, 40.0, 0.0)
+	sun.light_color = Color(1.0, 0.94, 0.84)
+	sun.light_energy = 1.25
 	sun.shadow_enabled = true
-	sun.directional_shadow_max_distance = 60.0
+	sun.shadow_blur = 1.5
+	sun.directional_shadow_max_distance = 45.0
 	add_child(sun)
 
+	var e := Environment.new()
+	e.background_mode = Environment.BG_COLOR
+	e.background_color = Color(0.13, 0.22, 0.14)
+	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	e.ambient_light_color = Color(0.62, 0.7, 0.85)
+	e.ambient_light_energy = 0.75
+	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	e.tonemap_exposure = 1.05
+	e.tonemap_white = 6.0
+	e.glow_enabled = true
+	e.glow_intensity = 0.6
+	e.glow_bloom = 0.05
+	e.glow_hdr_threshold = 0.9
+	e.adjustment_enabled = true
+	e.adjustment_saturation = 1.0
+	e.adjustment_contrast = 1.05
 	var env := WorldEnvironment.new()
-	env.environment = Environment.new()
-	env.environment.background_mode = Environment.BG_COLOR
-	env.environment.background_color = Color(0.18, 0.28, 0.2)
-	env.environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.environment.ambient_light_color = Color(0.65, 0.65, 0.75)
-	env.environment.ambient_light_energy = 0.7
+	env.environment = e
 	add_child(env)
