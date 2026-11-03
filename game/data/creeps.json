@@ -1,0 +1,7 @@
+{
+	"normal": {"name": "Vanlig", "speed": 1.7, "armor": 0, "flying": false},
+	"fast": {"name": "Rask", "speed": 2.6, "armor": 0, "flying": false, "tag": "Rask"},
+	"armored": {"name": "Pansret", "speed": 1.4, "armor": 5, "flying": false, "tag": "Pansret"},
+	"flying": {"name": "Flygende", "speed": 1.5, "armor": 0, "flying": true, "tag": "Flygende"},
+	"boss": {"name": "Boss", "speed": 1.1, "armor": 4, "flying": false, "tag": "Boss"}
+}

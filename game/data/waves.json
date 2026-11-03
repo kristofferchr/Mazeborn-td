@@ -1,24 +1,26 @@
 {
 	"start_gold": 80,
 	"lives": 20,
-	"tower": {
-		"cost": 10,
-		"refund": 0.75,
-		"range": 3.0,
-		"damage_min": 7,
-		"damage_max": 11,
-		"cooldown": 0.8
-	},
+	"wave_bonus": 5,
+	"early_bonus": 5,
 	"waves": [
-		{"count": 10, "hp": 35, "speed": 1.6, "interval": 1.0, "bounty": 3},
-		{"count": 12, "hp": 50, "speed": 1.6, "interval": 0.9, "bounty": 3},
-		{"count": 12, "hp": 75, "speed": 1.8, "interval": 0.9, "bounty": 4},
-		{"count": 14, "hp": 95, "speed": 1.8, "interval": 0.8, "bounty": 4},
-		{"count": 20, "hp": 85, "speed": 2.6, "interval": 0.5, "bounty": 3, "tags": ["Rask"]},
-		{"count": 14, "hp": 260, "speed": 1.6, "interval": 0.9, "bounty": 6},
-		{"count": 16, "hp": 320, "speed": 1.8, "interval": 0.8, "bounty": 6},
-		{"count": 24, "hp": 240, "speed": 2.6, "interval": 0.5, "bounty": 5, "tags": ["Rask"]},
-		{"count": 16, "hp": 520, "speed": 1.7, "interval": 0.9, "bounty": 8},
-		{"count": 1, "hp": 7000, "speed": 1.2, "interval": 1.0, "bounty": 100, "tags": ["Boss"]}
+		{"groups": [{"creep": "normal", "count": 10, "hp": 35, "interval": 1.0, "bounty": 3}]},
+		{"groups": [{"creep": "normal", "count": 12, "hp": 50, "interval": 0.9, "bounty": 3}]},
+		{"groups": [{"creep": "fast", "count": 16, "hp": 45, "interval": 0.6, "bounty": 3}]},
+		{"groups": [{"creep": "armored", "count": 12, "hp": 110, "interval": 1.0, "bounty": 5}]},
+		{"groups": [{"creep": "flying", "count": 12, "hp": 70, "interval": 0.9, "bounty": 4}]},
+		{"groups": [
+			{"creep": "normal", "count": 10, "hp": 180, "interval": 0.8, "bounty": 5},
+			{"creep": "fast", "count": 10, "hp": 110, "interval": 0.5, "bounty": 4}
+		]},
+		{"groups": [{"creep": "armored", "count": 14, "hp": 300, "interval": 0.9, "bounty": 7}]},
+		{"groups": [{"creep": "flying", "count": 16, "hp": 200, "interval": 0.8, "bounty": 6}]},
+		{"groups": [{"creep": "fast", "count": 26, "hp": 220, "interval": 0.45, "bounty": 5}]},
+		{"groups": [
+			{"creep": "armored", "count": 10, "hp": 520, "interval": 0.9, "bounty": 8},
+			{"creep": "flying", "count": 10, "hp": 380, "interval": 0.8, "bounty": 8}
+		]},
+		{"groups": [{"creep": "normal", "count": 20, "hp": 800, "interval": 0.7, "bounty": 9}]},
+		{"groups": [{"creep": "boss", "count": 1, "hp": 12000, "interval": 1.0, "bounty": 150}]}
 	]
 }

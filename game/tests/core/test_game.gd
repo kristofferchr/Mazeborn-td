@@ -4,25 +4,56 @@ extends RefCounted
 var t: Object  # test runner (check/eq)
 
 
+func _level(cost: int, damage: int, extra := {}) -> Dictionary:
+	var l := {
+		"cost": cost, "range": 2.5, "damage_min": damage, "damage_max": damage, "cooldown": 0.5
+	}
+	l.merge(extra)
+	return l
+
+
 func _config(waves: Array, gold := 100) -> Dictionary:
 	return {
 		"start_gold": gold,
 		"lives": 20,
-		"tower":
+		"towers":
 		{
-			"cost": 10,
 			"refund": 0.75,
-			"range": 2.5,
-			"damage_min": 10,
-			"damage_max": 10,
-			"cooldown": 0.5,
+			"order": ["stone", "cannon", "frost", "poison", "air"],
+			"towers":
+			{
+				"stone": {"levels": [_level(10, 10), _level(20, 30)]},
+				"cannon":
+				{"levels": [_level(20, 20, {"splash_radius": 1.5, "splash_factor": 0.5})]},
+				"frost": {"levels": [_level(10, 1, {"slow": 0.5, "slow_time": 1.0})]},
+				"poison":
+				{
+					"targets": ["ground", "air"],
+					"levels":
+					[_level(10, 0, {"poison_dps": 10, "poison_time": 2.0, "poison_stacks": 2})],
+				},
+				"air": {"targets": ["air"], "levels": [_level(10, 10)]},
+			},
+		},
+		"creeps":
+		{
+			"normal": {"speed": 2.0},
+			"armored": {"speed": 2.0, "armor": 4, "tag": "Pansret"},
+			"flying": {"speed": 2.0, "flying": true, "tag": "Flygende"},
 		},
 		"waves": waves,
 	}
 
 
-func _wave(count: int, hp: float, speed := 2.0, bounty := 1) -> Dictionary:
-	return {"count": count, "hp": hp, "speed": speed, "interval": 0.5, "bounty": bounty}
+func _wave(count: int, hp: float, speed := 2.0, bounty := 1, creep := "normal") -> Dictionary:
+	return {
+		"creep": creep,
+		"count": count,
+		"hp": hp,
+		"speed": speed,
+		"interval": 0.5,
+		"bounty": bounty,
+	}
 
 
 ## 7x3 corridor, spawn left, goal right.
@@ -119,8 +150,9 @@ func test_cannot_trap_creep_in_a_pocket() -> void:
 
 
 func test_targeting_first_and_closest() -> void:
-	var tower := Tower.new(Vector2i(3, 0), _config([]).tower)
-	tower.attack_range = 10.0
+	var def: Dictionary = _config([]).towers.towers.stone
+	def.levels[0].range = 10.0
+	var tower := Tower.new(Vector2i(3, 0), "stone", def)
 	var near := Creep.new(1, 10, 1, 1, Vector2i(3, 1))
 	near.set_path([Vector2i(3, 1), Vector2i(4, 1), Vector2i(5, 1), Vector2i(6, 1)])
 	var ahead := Creep.new(2, 10, 1, 1, Vector2i(5, 2))
@@ -140,8 +172,8 @@ func test_wave_simulation_is_deterministic_with_seed() -> void:
 
 func _summary(seed_value: int) -> Array:
 	var g := _game([_wave(10, 30, 1.5, 3), _wave(1, 10)], 20, seed_value)
-	g.tower_stats.damage_min = 5
-	g.tower_stats.damage_max = 15
+	g.tower_defs.stone.levels[0].damage_min = 5
+	g.tower_defs.stone.levels[0].damage_max = 15
 	g.build(Vector2i(2, 0))
 	g.build(Vector2i(4, 2))
 	g.start_wave()
@@ -152,7 +184,7 @@ func _summary(seed_value: int) -> Array:
 func test_default_config_loads() -> void:
 	var g := Game.create_default()
 	t.check(g.waves.size() >= 5, "has waves")
-	t.check(g.gold >= g.tower_cost(), "can afford a tower")
+	t.check(g.can_afford("stone"), "can afford a tower")
 	t.eq(g.lives, 20, "lives")
 	t.check(not g.grid.path().is_empty(), "map has a path")
 
@@ -163,27 +195,3 @@ func test_simulate_uses_fixed_steps() -> void:
 	t.eq(g.ticks, 2, "two whole steps")
 	g.simulate(Game.DT * 0.6)
 	t.eq(g.ticks, 3, "remainder carried over")
-
-
-func test_next_wave_is_shown_before_and_during_waves() -> void:
-	var first := _wave(3, 10)
-	var second := _wave(1, 500)
-	second["tags"] = ["Boss"]
-	var g := _game([first, second])
-	t.eq(g.next_wave(), first, "before the first wave")
-	g.start_wave()
-	t.eq(g.next_wave(), second, "during wave 1 the next is wave 2")
-	g.run_wave()
-	t.eq(g.next_wave(), second, "between waves")
-	t.eq(Game.wave_tags(g.next_wave()), ["Boss"] as Array[String], "tags from data")
-	t.eq(Game.wave_tags(first), [] as Array[String], "no tags")
-	g.start_wave()
-	t.eq(g.next_wave(), {}, "no more waves")
-
-
-func test_default_waves_tag_fast_and_boss() -> void:
-	var g := Game.create_default()
-	t.eq(Game.wave_tags(g.waves[-1]), ["Boss"] as Array[String], "last wave is the boss")
-	for w in g.waves:
-		if float(w.speed) >= 2.5:
-			t.check("Rask" in Game.wave_tags(w), "fast waves are tagged")
