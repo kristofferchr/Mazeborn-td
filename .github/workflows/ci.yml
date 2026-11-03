@@ -60,7 +60,7 @@ jobs:
           fi
 
       - name: Screenshot
-        run: scripts/screenshot.sh build/screenshot.png res://main.tscn 60 2532x1170
+        run: scripts/screenshot.sh build/screenshot.png res://tools/demo.tscn 30 2532x1170
 
       - uses: actions/upload-artifact@v4
         with:
