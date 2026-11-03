@@ -3,7 +3,21 @@ extends Node3D
 ## 3D placeholder view of a Game. Only reads the game state and its signals.
 ## Cell (x, y) is drawn at world (x + 0.5, 0, y + 0.5).
 
-const TOWER_COLOR := Color(0.62, 0.58, 0.52)
+const TOWER_COLORS := {
+	"stone": Color(0.62, 0.58, 0.52),
+	"cannon": Color(0.42, 0.36, 0.3),
+	"frost": Color(0.55, 0.8, 0.95),
+	"poison": Color(0.35, 0.75, 0.25),
+	"air": Color(0.95, 0.78, 0.3),
+}
+const CREEP_COLORS := {
+	"normal": Color(0.85, 0.25, 0.2),
+	"fast": Color(0.95, 0.75, 0.2),
+	"armored": Color(0.5, 0.52, 0.56),
+	"flying": Color(0.6, 0.35, 0.85),
+	"boss": Color(0.5, 0.08, 0.1),
+}
+const FLY_HEIGHT := 1.1
 const CRYSTAL_COLOR := Color(0.35, 0.75, 1.0)
 const CREEP_COLOR := Color(0.85, 0.25, 0.2)
 const PATH_COLOR := Color(0.95, 0.85, 0.45, 0.55)
@@ -23,9 +37,11 @@ static func cell_pos(cell: Vector2i, height := 0.0) -> Vector3:
 	return Vector3(cell.x + 0.5, height, cell.y + 0.5)
 
 
-## Placeholder size of a creep: bigger for strong creeps (boss waves).
+## Placeholder size of a creep: the boss is big, the rest grow a little with health.
 static func creep_scale(creep: Creep) -> float:
-	return clampf(0.8 + creep.max_hp / 1500.0, 0.8, 2.2)
+	if creep.kind == "boss":
+		return 2.0
+	return clampf(0.85 + creep.max_hp / 2500.0, 0.85, 1.3)
 
 
 static func mat(color: Color, unshaded := false) -> StandardMaterial3D:
@@ -52,6 +68,7 @@ func setup(p_game: Game) -> void:
 		add_child(n)
 	game.path_changed.connect(_draw_path)
 	game.tower_built.connect(_on_tower_built)
+	game.tower_upgraded.connect(_on_tower_upgraded)
 	game.tower_sold.connect(_on_tower_sold)
 	game.tower_fired.connect(_on_tower_fired)
 	game.creep_spawned.connect(_on_creep_spawned)
@@ -61,38 +78,51 @@ func setup(p_game: Game) -> void:
 
 
 ## Interpolated world position of a creep (between the last two ticks).
+## Flying creeps hover above the ground.
 func creep_world_pos(creep: Creep) -> Vector3:
 	var p := creep.prev_pos.lerp(creep.pos, clampf(game.alpha(), 0.0, 1.0))
-	return Vector3(p.x, 0.0, p.y)
+	return Vector3(p.x, FLY_HEIGHT if creep.flying else 0.0, p.y)
 
 
-## Shows the build preview (green/red), the selected tower, or nothing.
-func show_selection(cell: Vector2i, has_selection: bool) -> void:
+## Shows the build preview (green/red) for build_kind, the selected tower, or nothing.
+func show_selection(cell: Vector2i, has_selection: bool, build_kind: String) -> void:
 	var tower := game.tower_at(cell) if has_selection else null
 	_ghost.visible = has_selection and tower == null
 	_selection.visible = tower != null
 	_ring.visible = has_selection
 	if not has_selection:
 		return
-	var ok := game.can_build(cell)
+	var ok := game.can_build(cell, build_kind)
 	_ghost.position = cell_pos(cell, 0.45)
 	(_ghost.material_override as StandardMaterial3D).albedo_color = OK_COLOR if ok else BAD_COLOR
 	_selection.position = cell_pos(cell, 0.03)
 	_ring.position = cell_pos(cell, 0.04)
-	var r := float(game.tower_stats.range)
+	var r := tower.attack_range() if tower else float(game.tower_level_stats(build_kind).range)
 	_ring.scale = Vector3(r, 1.0, r)
 
 
 func _process(_delta: float) -> void:
+	var t := Time.get_ticks_msec() / 1000.0
 	for creep in game.creeps:
 		var node: Node3D = _creeps.get(creep.id)
 		if node == null:
 			continue
 		var p := creep_world_pos(creep)
+		if creep.flying:
+			p.y += sin(t * 4.0 + creep.id) * 0.08
 		var dir := Vector3(creep.pos.x - creep.prev_pos.x, 0.0, creep.pos.y - creep.prev_pos.y)
 		node.position = p
 		if dir.length_squared() > 0.000001:
 			node.rotation.y = atan2(dir.x, dir.z)
+		# Tint: blue while slowed, green while poisoned.
+		var body_mat: StandardMaterial3D = node.get_meta("mat")
+		var base: Color = node.get_meta("color")
+		var tint := base
+		if not creep.poison.is_empty():
+			tint = tint.lerp(Color(0.3, 0.9, 0.2), 0.5)
+		if creep.slow > 0.0:
+			tint = tint.lerp(Color(0.5, 0.8, 1.0), 0.6)
+		body_mat.albedo_color = tint
 
 
 func _build_world() -> void:
@@ -202,30 +232,73 @@ func _draw_path() -> void:
 		_path_root.add_child(dash)
 
 
+## Main colour of a tower kind (also used by the HUD buttons).
+static func tower_color(kind: String) -> Color:
+	return TOWER_COLORS.get(kind, Color(0.62, 0.58, 0.52))
+
+
 func _on_tower_built(tower: Tower) -> void:
-	var root := Node3D.new()
-	root.position = cell_pos(tower.cell)
-	var base := MeshInstance3D.new()
-	var cyl := CylinderMesh.new()
-	cyl.top_radius = 0.28
-	cyl.bottom_radius = 0.42
-	cyl.height = 1.2
-	base.mesh = cyl
-	base.material_override = mat(TOWER_COLOR)
-	base.position.y = 0.6
-	root.add_child(base)
-	var top := MeshInstance3D.new()
-	var gem := SphereMesh.new()
-	gem.radius = 0.2
-	gem.height = 0.5
-	top.mesh = gem
-	top.material_override = mat(CRYSTAL_COLOR)
-	top.position.y = 1.45
-	root.add_child(top)
+	var root := _tower_model(tower)
 	add_child(root)
 	_towers[tower.cell] = root
-	root.scale = Vector3(1.0, 0.1, 1.0)
-	create_tween().tween_property(root, "scale", Vector3.ONE, 0.15)
+	var full := root.scale
+	root.scale = Vector3(full.x, 0.1, full.z)
+	create_tween().tween_property(root, "scale", full, 0.15)
+
+
+func _on_tower_upgraded(tower: Tower) -> void:
+	var old: Node3D = _towers.get(tower.cell)
+	if old:
+		old.queue_free()
+	var root := _tower_model(tower)
+	add_child(root)
+	_towers[tower.cell] = root
+	var full := root.scale
+	root.scale = full * 1.25
+	create_tween().tween_property(root, "scale", full, 0.2)
+
+
+## Placeholder model per kind; gold rings at the base show the level.
+func _tower_model(tower: Tower) -> Node3D:
+	var root := Node3D.new()
+	root.position = cell_pos(tower.cell)
+	var c := tower_color(tower.kind)
+	var top_y := 1.45
+	match tower.kind:
+		"cannon":
+			_part(root, _box(Vector3(0.8, 0.7, 0.8)), c, Vector3(0, 0.35, 0))
+			var barrel := _part(root, _cylinder(0.14, 0.17, 0.8), Color(0.15, 0.15, 0.17))
+			barrel.position = Vector3(0, 0.85, 0.1)
+			barrel.rotation_degrees.x = 70.0
+			top_y = 1.0
+		"frost":
+			_part(root, _cylinder(0.25, 0.4, 1.0), c, Vector3(0, 0.5, 0))
+			_part(root, _cylinder(0.0, 0.22, 0.7), Color(0.85, 0.97, 1.0), Vector3(0, 1.35, 0))
+			top_y = 1.4
+		"poison":
+			_part(root, _cylinder(0.32, 0.42, 0.7), c.darkened(0.3), Vector3(0, 0.35, 0))
+			_part(root, _sphere(0.32), c, Vector3(0, 0.95, 0))
+			top_y = 1.0
+		"air":
+			_part(root, _cylinder(0.12, 0.3, 1.6), c.darkened(0.35), Vector3(0, 0.8, 0))
+			_part(root, _cylinder(0.0, 0.3, 0.5), c, Vector3(0, 1.85, 0))
+			top_y = 1.8
+		_:
+			_part(root, _cylinder(0.28, 0.42, 1.2), c, Vector3(0, 0.6, 0))
+			_part(root, _sphere(0.2), CRYSTAL_COLOR, Vector3(0, 1.45, 0))
+	for i in tower.level:
+		var ring := _part(root, _torus(0.4, 0.47), Color(1.0, 0.8, 0.25))
+		ring.position.y = 0.12 + i * 0.14
+	root.set_meta("top", top_y)
+	root.scale = Vector3.ONE * (1.0 + 0.08 * tower.level)
+	return root
+
+
+func _part(parent: Node3D, mesh: Mesh, color: Color, pos := Vector3.ZERO) -> MeshInstance3D:
+	var m := _mesh(mesh, color)
+	m.position = pos
+	parent.add_child(m)
+	return m
 
 
 func _on_tower_sold(tower: Tower, _refund: int) -> void:
@@ -236,14 +309,20 @@ func _on_tower_sold(tower: Tower, _refund: int) -> void:
 
 
 func _on_tower_fired(tower: Tower, creep: Creep, _damage: int) -> void:
-	var bolt := _mesh(_sphere(0.1), CRYSTAL_COLOR, true)
+	var color := tower_color(tower.kind).lightened(0.3)
+	var bolt := _mesh(_sphere(0.16 if tower.kind == "cannon" else 0.1), color, true)
 	bolt.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	bolt.position = cell_pos(tower.cell, 1.45)
+	var node_t: Node3D = _towers.get(tower.cell)
+	var top: float = node_t.get_meta("top", 1.45) if node_t else 1.45
+	bolt.position = cell_pos(tower.cell, top)
 	add_child(bolt)
 	var target := creep_world_pos(creep) + Vector3(0.0, 0.35, 0.0)
 	var tw := create_tween()
 	tw.tween_property(bolt, "position", target, 0.1)
 	tw.tween_callback(bolt.queue_free)
+	var stats := tower.stats()
+	if stats.has("splash_radius"):
+		_splash(target, float(stats.splash_radius), color)
 	var node: Node3D = _creeps.get(creep.id)
 	if node and creep.alive():
 		var body := node.get_child(0) as MeshInstance3D
@@ -252,14 +331,49 @@ func _on_tower_fired(tower: Tower, creep: Creep, _damage: int) -> void:
 		flash.tween_property(body, "scale", Vector3.ONE, 0.08)
 
 
+## Expanding ring where a cannon ball lands.
+func _splash(at: Vector3, radius: float, color: Color) -> void:
+	var ring := _mesh(_ring_mesh(0.85, 1.0), Color(color, 0.8), true)
+	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	ring.position = Vector3(at.x, 0.08, at.z)
+	ring.scale = Vector3(0.2, 1.0, 0.2)
+	add_child(ring)
+	var tw := create_tween()
+	tw.tween_interval(0.1)
+	tw.tween_property(ring, "scale", Vector3(radius, 1.0, radius), 0.18)
+	tw.tween_callback(ring.queue_free)
+
+
 func _on_creep_spawned(creep: Creep) -> void:
 	var root := Node3D.new()
-	var body := _mesh(_sphere(0.28), CREEP_COLOR)
-	body.position.y = 0.3
-	root.add_child(body)
-	var nose := _mesh(_box(Vector3(0.12, 0.12, 0.2)), Color(0.3, 0.1, 0.08))
-	nose.position = Vector3(0.0, 0.34, 0.27)
-	root.add_child(nose)
+	var color: Color = CREEP_COLORS.get(creep.kind, CREEP_COLOR)
+	var body: MeshInstance3D
+	match creep.kind:
+		"armored":
+			body = _part(root, _box(Vector3(0.5, 0.45, 0.55)), color, Vector3(0, 0.27, 0))
+			_part(root, _sphere(0.14), Color(0.8, 0.25, 0.2), Vector3(0, 0.45, 0.25))
+		"fast":
+			body = _part(root, _sphere(0.22), color, Vector3(0, 0.25, 0))
+			body.scale = Vector3(0.8, 0.8, 1.4)
+		"flying":
+			body = _part(root, _sphere(0.24), color, Vector3.ZERO)
+			for side: float in [-1.0, 1.0]:
+				var wing := _part(root, _box(Vector3(0.45, 0.04, 0.25)), color.lightened(0.3))
+				wing.position = Vector3(side * 0.35, 0.05, 0)
+				wing.rotation_degrees.z = side * 15.0
+		"boss":
+			body = _part(root, _sphere(0.3), color, Vector3(0, 0.32, 0))
+			for side: float in [-1.0, 1.0]:
+				var horn := _part(root, _cylinder(0.0, 0.06, 0.25), Color(0.9, 0.85, 0.7))
+				horn.position = Vector3(side * 0.16, 0.6, 0.08)
+				horn.rotation_degrees.z = -side * 25.0
+		_:
+			body = _part(root, _sphere(0.28), color, Vector3(0, 0.3, 0))
+			_part(
+				root, _box(Vector3(0.12, 0.12, 0.2)), Color(0.3, 0.1, 0.08), Vector3(0, 0.34, 0.27)
+			)
+	root.set_meta("mat", body.material_override)
+	root.set_meta("color", color)
 	root.scale = Vector3.ONE * creep_scale(creep)
 	root.position = creep_world_pos(creep)
 	add_child(root)
@@ -296,6 +410,15 @@ func _plane(size: Vector2) -> PlaneMesh:
 	var p := PlaneMesh.new()
 	p.size = size
 	return p
+
+
+func _cylinder(top: float, bottom: float, height: float) -> CylinderMesh:
+	var c := CylinderMesh.new()
+	c.top_radius = top
+	c.bottom_radius = bottom
+	c.height = height
+	c.radial_segments = 16
+	return c
 
 
 func _sphere(radius: float) -> SphereMesh:

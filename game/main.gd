@@ -1,7 +1,8 @@
 extends Node3D
 ## Game scene: runs the core Game with a fixed time step and wires the 3D view,
 ## the camera and the HUD to it. Touch: tap a cell to preview, tap again (or
-## "Bygg") to build, tap a tower to sell; drag to pan, pinch to zoom.
+## "Bygg") to build the kind chosen in the menu, tap a tower to upgrade or sell;
+## drag to pan, pinch to zoom.
 
 const TAP_SLOP := 14.0  # pixels a finger may move and still count as a tap
 const NO_CELL := Vector2i(-1, -1)
@@ -12,6 +13,7 @@ var camera: CameraRig
 var hud: Hud
 var speed := 1.0
 var selected := NO_CELL
+var build_kind := "stone"  # tower kind chosen in the build menu
 
 var _touches: Dictionary = {}  # index -> position
 var _tap_start := Vector2.ZERO
@@ -38,6 +40,8 @@ func _ready() -> void:
 	hud.start_wave_pressed.connect(func() -> void: game.start_wave())
 	hud.build_pressed.connect(func() -> void: _build_selected())
 	hud.sell_pressed.connect(_sell_selected)
+	hud.upgrade_pressed.connect(func() -> void: game.upgrade(selected))
+	hud.kind_selected.connect(func(kind: String) -> void: build_kind = kind)
 	hud.targeting_pressed.connect(_toggle_targeting)
 	hud.speed_pressed.connect(_toggle_speed)
 	hud.retry_pressed.connect(func() -> void: get_tree().reload_current_scene())
@@ -47,8 +51,8 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	game.simulate(minf(delta, 0.25) * speed)
 	# Refresh the preview: gold, creeps and the maze change while it is shown.
-	board.show_selection(selected, selected != NO_CELL)
-	hud.show_selection(selected, selected != NO_CELL)
+	board.show_selection(selected, selected != NO_CELL, build_kind)
+	hud.show_selection(selected, selected != NO_CELL, build_kind)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -122,7 +126,7 @@ func _select(cell: Vector2i) -> void:
 
 
 func _build_selected() -> void:
-	if selected != NO_CELL and game.build(selected) != null:
+	if selected != NO_CELL and game.build(selected, build_kind) != null:
 		_select(NO_CELL)
 
 
