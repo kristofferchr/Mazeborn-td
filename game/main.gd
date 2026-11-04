@@ -8,7 +8,7 @@ const ROUND := preload("res://round.tscn")
 static var last_map := Maps.DEFAULT
 
 var menu: MapSelect
-var current_round: Node
+var current_round: Round
 
 
 func _ready() -> void:
@@ -26,7 +26,7 @@ func show_menu() -> void:
 func play(map_id: String) -> void:
 	last_map = map_id
 	_clear()
-	current_round = ROUND.instantiate()
+	current_round = ROUND.instantiate() as Round
 	current_round.map_id = map_id
 	current_round.retry_requested.connect(play.bind(map_id), CONNECT_DEFERRED)
 	current_round.maps_requested.connect(show_menu, CONNECT_DEFERRED)

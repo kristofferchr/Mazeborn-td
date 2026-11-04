@@ -155,9 +155,12 @@ func creep_world_pos(creep: Creep) -> Vector3:
 	return Vector3(p.x, FLY_HEIGHT if creep.flying else 0.0, p.y)
 
 
-## Shows the build preview (a translucent tower, green or red) for build_kind,
-## the selected tower with its range, or nothing. The grid shows while selecting.
-func show_selection(cell: Vector2i, has_selection: bool, build_kind: String) -> void:
+## Shows the build preview (a translucent tower, green if `buildable`, else red)
+## for build_kind, the selected tower with its range, or nothing. The grid
+## shows while selecting.
+func show_selection(
+	cell: Vector2i, has_selection: bool, build_kind: String, buildable: bool
+) -> void:
 	var tower := game.tower_at(cell) if has_selection else null
 	_cell.visible = has_selection
 	_ring.visible = has_selection
@@ -166,7 +169,7 @@ func show_selection(cell: Vector2i, has_selection: bool, build_kind: String) -> 
 	_set_grid_alpha(0.16 if has_selection and tower == null else 0.05)
 	if not has_selection:
 		return
-	var ok := tower != null or game.can_build(cell, build_kind)
+	var ok := tower != null or buildable
 	var color := Color(1.0, 0.85, 0.35) if tower else (OK_COLOR if ok else BAD_COLOR)
 	(_cell.material_override as ShaderMaterial).set_shader_parameter("color", color)
 	(_ring.material_override as ShaderMaterial).set_shader_parameter("color", color)
@@ -425,20 +428,41 @@ func _scene(path: String) -> PackedScene:
 	return _scenes[path]
 
 
-## Ribbons along the creep paths, one per spawn. A path that joins one drawn
-## before stops where it joins, so shared stretches are drawn once.
+## Ribbons along the creep paths, one per spawn. Where a path joins an earlier
+## one and walks the same cells from there to the goal, it stops at the join,
+## so shared stretches are drawn once.
 func _draw_path() -> void:
-	var drawn := {}
+	var paths: Array = []
 	for i in _paths.size():
-		var path := game.grid.path(i)
+		paths.append(game.grid.path(i))
+	var cuts := ribbon_cuts(paths)
+	for i in _paths.size():
+		var path: Array[Vector2i] = paths[i]
+		_paths[i].mesh = _ribbon(path.slice(0, cuts[i]))
+
+
+## How many cells of each path to draw: all of it, or up to and including the
+## first cell from which it follows an earlier path to the end.
+static func ribbon_cuts(paths: Array) -> Array[int]:
+	var cuts: Array[int] = []
+	for i in paths.size():
+		var path: Array[Vector2i] = paths[i]
 		var cut := path.size()
 		for j in path.size():
-			if drawn.has(path[j]):
+			if _joins(path, j, paths.slice(0, i)):
 				cut = j + 1
 				break
-		for j in cut:
-			drawn[path[j]] = true
-		_paths[i].mesh = _ribbon(path.slice(0, cut))
+		cuts.append(cut)
+	return cuts
+
+
+## True if path from index j on is the rest of one of the earlier paths.
+static func _joins(path: Array[Vector2i], j: int, earlier: Array) -> bool:
+	for other: Array[Vector2i] in earlier:
+		var k := other.find(path[j])
+		if k >= 0 and other.slice(k) == path.slice(j):
+			return true
+	return false
 
 
 ## Mitred strip through the cell centres of a path, or null if too short.

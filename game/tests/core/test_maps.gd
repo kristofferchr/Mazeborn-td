@@ -129,6 +129,7 @@ func test_map_rules_override_the_config() -> void:
 	game.start_wave()
 	game.step()
 	t.eq(game.creeps[0].max_hp, 35.0 * 1.1, "scaled health")
+	t.eq(game.creep_hp(game.waves[0].groups[0]), 35.0 * 1.1, "creep_hp for the HUD")
 
 
 func test_maze_plan_skips_rocks_and_keeps_paths() -> void:

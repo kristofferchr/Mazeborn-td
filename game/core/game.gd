@@ -331,7 +331,7 @@ func _spawn() -> void:
 	var def := _creep_def(kind)
 	var speed := float(g.get("speed", def.get("speed", 1.7)))
 	var from := spawn_for(_spawned)
-	var creep := Creep.new(_next_creep_id, float(g.hp) * hp_scale, speed, int(g.bounty), from, kind)
+	var creep := Creep.new(_next_creep_id, creep_hp(g), speed, int(g.bounty), from, kind)
 	creep.armor = int(g.get("armor", def.get("armor", 0)))
 	creep.flying = bool(def.get("flying", false))
 	_next_creep_id += 1
@@ -346,6 +346,11 @@ func _spawn() -> void:
 		_queue.remove_at(0)
 	_spawn_timer += float(g.interval)
 	creep_spawned.emit(creep)
+
+
+## Health of the creeps of a wave group on this map (hp_scale applied).
+func creep_hp(group: Dictionary) -> float:
+	return float(group.hp) * hp_scale
 
 
 ## Spawn of the n-th creep of the round (0-based): the spawns take turns.

@@ -1,3 +1,4 @@
+class_name Round
 extends Node3D
 ## One round on a map: runs the core Game with a fixed time step and wires the
 ## 3D view, the camera and the HUD to it. Set map_id before adding it to the
@@ -73,8 +74,13 @@ func _choose_map() -> void:
 func _process(delta: float) -> void:
 	game.simulate(minf(delta, 0.25) * speed)
 	# Refresh the preview: gold, creeps and the maze change while it is shown.
-	board.show_selection(selected, selected != NO_CELL, build_kind)
-	hud.show_selection(selected, selected != NO_CELL, build_kind)
+	# can_build runs a path search per spawn, so it is done once per frame here.
+	var has := selected != NO_CELL
+	var buildable := (
+		has and game.tower_at(selected) == null and game.can_build(selected, build_kind)
+	)
+	board.show_selection(selected, has, build_kind, buildable)
+	hud.show_selection(selected, has, build_kind, buildable)
 
 
 func _unhandled_input(event: InputEvent) -> void:

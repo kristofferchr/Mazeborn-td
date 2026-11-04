@@ -14,9 +14,6 @@ var leaked_by_wave := {}  # wave number -> creeps that got through
 func _init(p_game: Game) -> void:
 	game = p_game
 	plan = MazePlan.serpentine(game.grid)
-	game.creep_leaked.connect(
-		func(_c: Creep) -> void: leaked_by_wave[game.wave] = 1 + leaked_by_wave.get(game.wave, 0)
-	)
 
 
 ## Plays the whole round. `on_wave` is called after each wave (with this bot).
@@ -28,11 +25,14 @@ func play(on_wave := Callable()) -> bool:
 	return game.phase == Game.Phase.WON
 
 
-## Spends the gold, then runs the next wave to its end.
+## Spends the gold, then runs the next wave to its end. Leaks are counted from
+## the lives (no signal, so the bot and the game do not keep each other alive).
 func play_wave() -> void:
 	spend()
+	var lives := game.lives
 	game.start_wave()
 	game.run_wave()
+	leaked_by_wave[game.wave] = lives - game.lives
 
 
 func spend() -> void:

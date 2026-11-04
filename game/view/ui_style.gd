@@ -122,6 +122,23 @@ static func chip(text: String, color: Color, size := 18) -> Label:
 	return l
 
 
+## Safe-area insets (notch, home indicator) of a viewport in canvas units:
+## {left, top, right, bottom}.
+static func safe_insets(viewport: Viewport) -> Dictionary:
+	var vp := viewport.get_visible_rect().size
+	var win := Vector2(DisplayServer.window_get_size())
+	var safe := Rect2(DisplayServer.get_display_safe_area())
+	var out := {"left": 0.0, "top": 0.0, "right": 0.0, "bottom": 0.0}
+	if win.x <= 0 or win.y <= 0 or safe.size.x <= 0 or safe.size.y <= 0:
+		return out
+	var k := vp / win
+	out.left = maxf(safe.position.x, 0.0) * k.x
+	out.top = maxf(safe.position.y, 0.0) * k.y
+	out.right = maxf(win.x - safe.end.x, 0.0) * k.x
+	out.bottom = maxf(win.y - safe.end.y, 0.0) * k.y
+	return out
+
+
 static func label(text: String, size := 26, color := TEXT, is_bold := false) -> Label:
 	var l := Label.new()
 	l.text = text

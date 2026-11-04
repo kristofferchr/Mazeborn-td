@@ -116,14 +116,15 @@ func _select(id: String) -> void:
 		_play.text = "Spill  %s" % Maps.load_map(id).name
 
 
-## Cards in one row on wide screens and in two on narrower ones, sized to fit.
+## Cards in one row on wide screens and in two on narrower ones, sized to fit
+## inside the safe area.
 func _layout() -> void:
-	var vp := get_viewport_rect().size
-	var cols := 4 if vp.x >= 1200 and vp.x / vp.y >= 1.6 else 2
+	var area := _area()
+	var cols := 4 if area.size.x >= 1100 and area.size.x / area.size.y >= 1.5 else 2
 	_grid.columns = cols
 	var rows := ceili(_cards.size() / float(cols))
-	var w := clampf((vp.x - MARGIN * 2.0 - GAP * (cols - 1)) / cols, 240.0, 560.0)
-	var h := clampf((vp.y - 300.0 - GAP * (rows - 1)) / rows, 220.0, 420.0)
+	var w := clampf((area.size.x - GAP * (cols - 1)) / cols, 240.0, 560.0)
+	var h := clampf((area.size.y - 230.0 - GAP * (rows - 1)) / rows, 220.0, 420.0)
 	for card: Button in _cards.values():
 		card.custom_minimum_size = Vector2(w, h)
 		var preview := card.find_child("Preview", true, false) as Control
@@ -144,19 +145,29 @@ func _fit_cards() -> void:
 
 
 func _place() -> void:
-	var vp := get_viewport_rect().size
+	var area := _area()
 	_grid.reset_size()
-	var top := MARGIN * 0.8
-	_title.position = Vector2(MARGIN, top)
-	_subtitle.position = Vector2(MARGIN + 2, top + 68)
-	var grid_top := top + 116.0
-	_grid.position = Vector2((vp.x - _grid.size.x) / 2.0, grid_top)
+	_title.position = area.position
+	_subtitle.position = area.position + Vector2(2, 68)
+	var grid_top := area.position.y + 116.0
+	_grid.position = Vector2(area.get_center().x - _grid.size.x / 2.0, grid_top)
 	_play.size = _play.custom_minimum_size
 	_play.reset_size()
 	_play.position = Vector2(
-		vp.x - MARGIN - _play.size.x, minf(grid_top + _grid.size.y + 26.0, vp.y - MARGIN - 96)
+		area.end.x - _play.size.x, minf(grid_top + _grid.size.y + 26.0, area.end.y - _play.size.y)
 	)
 	queue_redraw()
+
+
+## The screen minus the safe-area insets (notch, home indicator) and a margin.
+func _area() -> Rect2:
+	var vp := get_viewport_rect().size
+	var inset := UiStyle.safe_insets(get_viewport())
+	var left: float = MARGIN + inset.left
+	var top: float = MARGIN * 0.8 + inset.top
+	var right: float = vp.x - MARGIN - inset.right
+	var bottom: float = vp.y - MARGIN - inset.bottom
+	return Rect2(left, top, right - left, bottom - top)
 
 
 func _draw() -> void:
