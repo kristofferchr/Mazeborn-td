@@ -18,6 +18,11 @@ const TAG_COLORS := {
 	"Rask": Color(0.2, 0.55, 0.85),
 	"Pansret": Color(0.45, 0.47, 0.53),
 	"Flygende": Color(0.55, 0.3, 0.8),
+	"Helbreder": Color(0.22, 0.62, 0.32),
+	"Skjold": Color(0.3, 0.4, 0.92),
+	"Deler seg": Color(0.5, 0.62, 0.15),
+	"Immun": Color(0.85, 0.5, 0.12),
+	"Usynlig": Color(0.15, 0.55, 0.55),
 	"Boss": Color(0.8, 0.22, 0.22),
 }
 const CREEP_DOTS := {
@@ -25,8 +30,17 @@ const CREEP_DOTS := {
 	"fast": Color(0.95, 0.75, 0.25),
 	"armored": Color(0.6, 0.63, 0.7),
 	"flying": Color(0.65, 0.45, 0.95),
+	"healer": Color(0.4, 0.9, 0.5),
+	"shielded": Color(0.45, 0.6, 1.0),
+	"splitter": Color(0.65, 0.85, 0.3),
+	"spawnling": Color(0.65, 0.85, 0.3),
+	"immune": Color(1.0, 0.6, 0.2),
+	"invisible": Color(0.4, 0.8, 0.8),
+	"miniboss": Color(0.9, 0.35, 0.3),
 	"boss": Color(0.9, 0.2, 0.25),
 }
+const SHIELD_BAR := Color(0.4, 0.65, 1.0)
+const INVULNERABLE_BAR := Color(1.0, 0.88, 0.45)
 const THUMB := 112  # tower thumbnail size in pixels
 
 var game: Game
@@ -645,18 +659,31 @@ func _draw_bars() -> void:
 		if camera.is_position_behind(world):
 			continue
 		var p := camera.unproject_position(world)
-		var w := 90.0 if creep.kind == "boss" else 46.0
+		var w := 90.0 if creep.boss else 46.0
+		# Hidden invisible creeps get faint bars.
+		var a := 0.4 if creep.invisible and not creep.revealed else 1.0
+		back.bg_color.a = 0.85 * a
 		var rect := Rect2(p - Vector2(w / 2.0, 4.0), Vector2(w, 8.0))
 		_bars.draw_style_box(back, rect.grow(2.0))
+		if creep.max_shield > 0.0 and creep.shield > 0.0:
+			var shield_rect := Rect2(rect.position - Vector2(0, 9.0), Vector2(w, 5.0))
+			_bars.draw_style_box(back, shield_rect.grow(2.0))
+			fill.bg_color = Color(SHIELD_BAR, a)
+			var sf := clampf(creep.shield / creep.max_shield, 0.0, 1.0)
+			_bars.draw_style_box(
+				fill, Rect2(shield_rect.position, Vector2(maxf(w * sf, 5.0), shield_rect.size.y))
+			)
 		var f := clampf(creep.hp / creep.max_hp, 0.0, 1.0)
 		if f <= 0.0:
 			continue
 		var col := UiStyle.DANGER
-		if f > 0.6:
+		if creep.invulnerable_time > 0.0:
+			col = INVULNERABLE_BAR
+		elif f > 0.6:
 			col = UiStyle.GOOD
 		elif f > 0.3:
 			col = UiStyle.ACCENT
-		fill.bg_color = col
+		fill.bg_color = Color(col, a)
 		_bars.draw_style_box(fill, Rect2(rect.position, Vector2(maxf(w * f, 6.0), rect.size.y)))
 
 

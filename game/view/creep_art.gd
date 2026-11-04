@@ -15,6 +15,13 @@ const KIND_MODELS := {
 	"fast": "spider",
 	"armored": "skeleton_minion",
 	"flying": "bat",
+	"healer": "rat",
+	"shielded": "skeleton_minion",
+	"splitter": "slime",
+	"spawnling": "slime",
+	"immune": "triceratops",
+	"invisible": "spider",
+	"miniboss": "triceratops",
 	"boss": "skeleton_warrior",
 }
 const MODELS := {
@@ -135,6 +142,14 @@ static var _scenes: Dictionary = {}  # id -> PackedScene
 
 static func info(id: String) -> Dictionary:
 	return MODELS.get(id, MODELS[DEFAULT])
+
+
+## Model id for a creep: its own model (from its wave group, split or summon),
+## else model_for its kind.
+static func model_of(creep: Creep, waves: Array[Dictionary], wave: int) -> String:
+	if MODELS.has(creep.model):
+		return creep.model
+	return model_for(creep.kind, waves, wave)
 
 
 ## Model id for a creep kind: the "model" of the latest wave (up to `wave`, 1-based)
