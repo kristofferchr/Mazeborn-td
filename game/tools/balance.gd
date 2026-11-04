@@ -1,20 +1,27 @@
 extends SceneTree
 ## Bot that builds a serpentine maze with mixed tower kinds, adds air towers
-## before flying waves and upgrades once the maze is done. For balancing.
+## before flying waves, upgrades arrows along the maze to sharpshooters (they
+## reveal invisible creeps) before invisible waves and upgrades once the maze
+## is done. For balancing.
 ## Usage: scripts/godot.sh --headless --path game -s res://tools/balance.gd [-- seed]
 
 const AIR_FOR_FLYERS := 6
+const REVEAL_EVERY := 8  # a revealing tower every this many towers along the maze
 
 
 func _initialize() -> void:
 	var args := OS.get_cmdline_user_args()
 	var g := Game.create_default(int(args[0]) if args.size() > 0 else 3)
 	var leaked_by_wave := {}
+	var leaked_kinds := {}  # kind -> count in the current wave
 	g.creep_leaked.connect(
-		func(_c: Creep) -> void: leaked_by_wave[g.wave] = 1 + leaked_by_wave.get(g.wave, 0)
+		func(c: Creep) -> void:
+			leaked_by_wave[g.wave] = 1 + leaked_by_wave.get(g.wave, 0)
+			leaked_kinds[c.kind] = 1 + leaked_kinds.get(c.kind, 0)
 	)
 	while not g.is_over():
 		_spend(g)
+		leaked_kinds.clear()
 		g.start_wave()
 		g.run_wave()
 		var levels := 0
@@ -22,7 +29,7 @@ func _initialize() -> void:
 			levels += g.towers[cell].level
 		print(
 			(
-				"wave %2d %-22s lives %2d leaked %2d gold %3d towers %2d upgrades %2d path %d"
+				"wave %2d %-26s lives %2d leaked %2d gold %3d towers %2d upgrades %2d path %d %s"
 				% [
 					g.wave,
 					", ".join(g.wave_tags(g.waves[g.wave - 1])),
@@ -32,6 +39,7 @@ func _initialize() -> void:
 					g.towers.size(),
 					levels,
 					g.grid.path().size(),
+					leaked_kinds if not leaked_kinds.is_empty() else "",
 				]
 			)
 		)
@@ -42,6 +50,8 @@ func _initialize() -> void:
 func _spend(g: Game) -> void:
 	if "Flygende" in g.wave_tags(g.next_wave()):
 		_air_towers(g)
+	if "Usynlig" in g.wave_tags(g.next_wave()):
+		_revealers(g)
 	# Build the maze; after two walls, alternate between building and upgrading.
 	var plan := MazePlan.serpentine(g.grid)
 	var build_next := true
@@ -85,6 +95,18 @@ func _upgrade_cheapest(g: Game) -> bool:
 			best_option = option
 			best_cost = tower.upgrade_cost(option)
 	return best.x >= 0 and g.upgrade(best, best_option)
+
+
+## Upgrades arrows spread along the maze until they reveal invisible creeps.
+func _revealers(g: Game) -> void:
+	var plan := MazePlan.serpentine(g.grid)
+	for i in range(REVEAL_EVERY / 2, plan.size(), REVEAL_EVERY):
+		for j in range(i, mini(i + 3, plan.size())):
+			var tower := g.tower_at(plan[j])
+			if tower != null and tower.kind == "arrow":
+				while not tower.reveals() and g.upgrade(plan[j]):
+					pass
+				break
 
 
 ## Arrow for the first wall (cheap mazing), then a mix along the maze.

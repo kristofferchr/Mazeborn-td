@@ -271,3 +271,25 @@ func test_wave_group_overrides_abilities_and_shows_their_tags() -> void:
 	t.check(c.invisible, "invisible from the group")
 	t.eq(c.shield, 20.0, "shield from the group")
 	t.eq(g.wave_tags(w), ["Usynlig", "Skjold"] as Array[String], "ability tags")
+
+
+func test_default_data_uses_abilities_and_bosses() -> void:
+	var g := Game.create_default()
+	var boss: Dictionary = g.creep_defs.boss.abilities
+	t.check(boss.has("summon") and boss.has("enrage") and boss.has("phases"), "final boss")
+	var kinds: Array[String] = []
+	for w in g.waves:
+		for group in Game.wave_groups(w):
+			var kind := str(group.creep)
+			kinds.append(kind)
+			if g.creep_defs[kind].get("boss", false):
+				t.eq(g.creep_defs[kind].abilities.immune, ["stun"], "%s is stun immune" % kind)
+	for kind: String in ["healer", "shielded", "splitter", "immune", "invisible"]:
+		t.check(kind in kinds, "%s appears in a wave" % kind)
+	var mid := false
+	for group in Game.wave_groups(g.waves[5]):
+		mid = mid or g.creep_defs[str(group.creep)].get("boss", false)
+	t.check(mid, "wave 6 has a mid boss")
+	var arrow: Dictionary = g.tower_defs.arrow.nodes
+	t.check(arrow.arrow3.get("reveal", false), "sharpshooter reveals")
+	t.check(g.tower_defs.elemental.nodes.lightning.get("reveal", false), "lightning reveals")

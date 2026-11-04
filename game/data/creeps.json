@@ -3,5 +3,12 @@
 	"fast": {"name": "Rask", "speed": 2.6, "armor": 0, "flying": false, "tag": "Rask"},
 	"armored": {"name": "Pansret", "speed": 1.4, "armor": 3, "flying": false, "tag": "Pansret"},
 	"flying": {"name": "Flygende", "speed": 1.5, "armor": 0, "flying": true, "tag": "Flygende"},
-	"boss": {"name": "Boss", "speed": 1.1, "armor": 4, "flying": false, "tag": "Boss"}
+	"healer": {"name": "Helbreder", "speed": 1.5, "armor": 0, "flying": false, "tag": "Helbreder", "abilities": {"heal": {"interval": 2.5, "radius": 1.8, "percent": 0.08}}},
+	"shielded": {"name": "Skjoldbærer", "speed": 1.5, "armor": 1, "flying": false, "tag": "Skjold", "abilities": {"shield": {"percent": 0.7}}},
+	"splitter": {"name": "Deler seg", "speed": 1.5, "armor": 0, "flying": false, "tag": "Deler seg", "abilities": {"split": {"count": 2, "creep": "spawnling", "hp_percent": 0.3, "speed": 2.1, "bounty": 1}}},
+	"spawnling": {"name": "Unge", "speed": 2.1, "armor": 0, "flying": false, "scale": 0.55},
+	"immune": {"name": "Immun", "speed": 1.6, "armor": 2, "flying": false, "tag": "Immun", "abilities": {"immune": true}},
+	"invisible": {"name": "Usynlig", "speed": 1.9, "armor": 0, "flying": false, "tag": "Usynlig", "abilities": {"invisible": true}},
+	"miniboss": {"name": "Mellomboss", "speed": 1.2, "armor": 2, "flying": false, "boss": true, "scale": 1.3, "tag": "Boss", "abilities": {"immune": ["stun"], "enrage": {"below": 0.5, "speed": 1.6}}},
+	"boss": {"name": "Boss", "speed": 1.1, "armor": 4, "flying": false, "boss": true, "scale": 1.4, "tag": "Boss", "abilities": {"immune": ["stun"], "enrage": {"below": 0.5, "speed": 1.6}, "phases": {"at": [0.66, 0.33], "time": 2.0}, "summon": {"interval": 6.0, "count": 2, "creep": "spawnling", "hp": 140, "speed": 1.8, "bounty": 2, "model": "skeleton_minion"}}}
 }
