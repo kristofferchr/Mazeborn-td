@@ -15,7 +15,8 @@ Usage: scripts/asc_whats_new.py --build N [--version X.Y.Z] [--tag vX.Y.Z]
   --tag      tag being built (default: GITHUB_REF_NAME when GITHUB_REF_TYPE=tag).
   --locale   betaBuildLocalizations locale(s); default: the app's primary
              locale plus any TestFlight (beta app) localizations.
-  --timeout  minutes to wait for the build to show up in App Store Connect.
+  --timeout  minutes in total to wait for the build to show up in App Store
+             Connect and for Apple to accept the text.
   --dry-run  print the text and the API calls it would make; only reads.
 
 Needs the same ASC_* environment variables as scripts/asc_builds.py (without
@@ -144,7 +145,7 @@ def whats_new(build, version, tag, head="HEAD"):
         base = previous_tag(tag)
         since = f"Endringer siden {base}:\n" if base else None
         if not base:
-            base = previous_build_commit(git("rev-parse", head))
+            base = previous_build_commit(git("rev-parse", f"{head}^{{commit}}"))
             since = f"Endringer siden forrige TestFlight-bygg ({base[:7]}):\n" if base else None
     if base:
         detailed = changes(f"{base}..{head}")
@@ -190,39 +191,79 @@ def write_calls(build_id, text, locales, existing):
     return calls
 
 
-def wait_for_build(app, build, version, timeout_min):
-    deadline = time.time() + timeout_min * 60
+def wait_for_build(app, build, version, deadline):
     while True:
         found = asc.find_build(app, build, version)
         if found:
             return found
         upload = asc.find_upload(app, build, version)
         if ((upload or {}).get("state") or {}).get("state") == "FAILED":
-            asc.error(f"upload of build {build} failed: {asc.upload_errors(upload)}")
+            fail(f"upload of build {build} failed: {asc.upload_errors(upload)}")
             return None
         if time.time() >= deadline:
-            asc.error(f"build {build} did not show up in App Store Connect within {timeout_min} min")
+            fail(f"build {build} did not show up in App Store Connect before the timeout")
             return None
         print(f"{time.strftime('%H:%M:%S')} waiting for build {build} to show up in App Store Connect")
         time.sleep(30)
 
 
-def apply(calls, deadline):
-    """Sends the writes; retries 409 (build still processing) until the deadline."""
-    for method, path, body in calls:
-        while True:
-            try:
-                asc.request(method, path, body)
-                print(f"{method} {path}: ok ({body['data']['attributes'].get('locale', 'update')})")
-                break
-            except urllib.error.HTTPError as e:
-                if e.code == 409 and time.time() < deadline:
-                    print(f"{method} {path}: {e.code}, retrying in 60 s ({e.reason})")
-                    time.sleep(60)
-                    continue
-                asc.error(f"{method} {path} failed: HTTP {e.code} {e.reason}")
-                return 1
+def processing_state(build_id):
+    return asc.get(f"/v1/builds/{build_id}?fields[builds]=processingState")["data"]["attributes"]["processingState"]
+
+
+def existing_localizations(build_id):
+    data = asc.get(f"/v1/builds/{build_id}/betaBuildLocalizations")["data"]
+    return {loc["attributes"]["locale"]: loc["id"] for loc in data}
+
+
+def set_locale(build_id, locale, text, existing, deadline):
+    """Creates or updates one localization. Returns None on success, else an error message.
+
+    On 409 it re-reads the build: if the localization now exists (a POST that
+    Apple applied although the response was lost, or one Apple created) it
+    switches to PATCH; if the build is INVALID/FAILED it stops; it only waits
+    and retries while the build is processing and Apple says so.
+    """
+    while True:
+        (method, path, body), = write_calls(build_id, text, [locale], existing)
+        try:
+            asc.request(method, path, body)
+            print(f"{method} {path}: ok ({locale})")
+            return None
+        except urllib.error.HTTPError as e:
+            if e.code != 409:
+                return f"{method} {path} failed: HTTP {e.code} {e.reason}"
+            conflict = e.reason
+        existing = existing_localizations(build_id)
+        if method == "POST" and locale in existing:
+            print(f"POST {path}: 409, but {locale} exists now; updating it instead")
+            continue
+        state = processing_state(build_id)
+        if state in ("INVALID", "FAILED"):
+            return f"build is {state}, so What to Test cannot be set ({conflict})"
+        if state == "PROCESSING" and "process" in conflict.lower() and time.time() < deadline:
+            print(f"{method} {path}: 409 while the build is processing, retrying in 60 s")
+            time.sleep(60)
+            continue
+        return f"{method} {path} failed: HTTP 409 (build {state}) {conflict}"
+
+
+def apply(build_id, text, locales, existing, deadline):
+    for locale in locales:
+        problem = set_locale(build_id, locale, text, existing, deadline)
+        if problem:
+            fail(problem)
+            return 1
     return 0
+
+
+def fail(message):
+    """Error annotation plus a note in the step summary (the step may continue on error)."""
+    asc.error(message)
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as f:
+            f.write(f"\n> [!WARNING]\n> What to Test was not set: {message}\n")
 
 
 def main():
@@ -236,6 +277,7 @@ def main():
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
+    deadline = time.time() + args.timeout * 60  # shared by every wait below
     head = args.tag or "HEAD"
     text, used = whats_new(args.build, args.version, args.tag, head)
     print(f"What to Test ({used}, {utf16_len(text)}/{LIMIT} chars):\n{'-' * 60}\n{text}\n{'-' * 60}")
@@ -255,7 +297,7 @@ def main():
               f"{'&filter[preReleaseVersion.version]=' + args.version if args.version else ''}"
               f" -> {found['id'] if found else 'not found (the workflow waits for it)'}")
     else:
-        found = wait_for_build(app, args.build, args.version, args.timeout)
+        found = wait_for_build(app, args.build, args.version, deadline)
         if not found:
             return 1
     build_id = found["id"] if found else "<build id>"
@@ -266,8 +308,12 @@ def main():
         for method, path, body in calls:
             print(f"would {method} {path}\n{json.dumps(body, ensure_ascii=False, indent=2)}")
         return 0
-    return apply(calls, time.time() + args.timeout * 60)
+    return apply(build_id, text, locales, existing, deadline)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except (OSError, urllib.error.URLError, KeyError, subprocess.CalledProcessError) as e:
+        fail(f"{type(e).__name__}: {e}")
+        sys.exit(1)

@@ -5,9 +5,13 @@ name: iOS TestFlight
 # Connect API key; no Mac or local certificates are needed. After the upload
 # the job sets "What to Test" from the git history and waits until Apple has
 # processed the build; it fails if Apple rejects it or it is not processed.
+# A failure to set "What to Test" only gives a warning.
 #
-#   git tag v0.2.0 && git push --tags   -> version 0.2.0 in TestFlight
-#   Actions -> iOS TestFlight -> Run    -> version from game/export_presets.cfg
+#   git tag v0.2.0 && git push origin v0.2.0  -> version 0.2.0 in TestFlight
+#   Actions -> iOS TestFlight -> Run          -> version from game/export_presets.cfg
+# (push one tag at a time: GitHub starts no workflows for a push of more than
+# three tags). "Re-run failed jobs" keeps the build number, so it skips the
+# build and upload if Apple already has that build and only redoes the rest.
 #
 # Secrets (Settings -> Secrets and variables -> Actions):
 #   ASC_KEY_ID       Key ID of the App Store Connect API key
@@ -33,7 +37,7 @@ jobs:
   testflight:
     name: Build and upload to TestFlight
     runs-on: macos-latest
-    timeout-minutes: 120
+    timeout-minutes: 150 # build ~40 min + What to Test <= 30 + wait <= 45
     steps:
       - uses: actions/checkout@v7
         with:
@@ -65,20 +69,6 @@ jobs:
       - name: Install App Store Connect script dependencies
         run: pip install pyjwt cryptography
 
-      - name: Cache Godot and export templates
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cache/mazeborn/godot
-            ~/Library/Application Support/Godot/export_templates
-          key: godot-${{ runner.os }}-${{ hashFiles('.godot-version') }}
-
-      - name: Show Xcode version
-        run: xcodebuild -version
-
-      - name: Export Godot project to Xcode
-        run: scripts/export-ios.sh "$APP_BUILD"
-
       - name: Write App Store Connect API key
         env:
           ASC_PRIVATE_KEY_BASE64: ${{ secrets.ASC_PRIVATE_KEY_BASE64 }}
@@ -93,7 +83,43 @@ jobs:
           grep -q "BEGIN PRIVATE KEY" "$key" || { echo "::error::ASC_PRIVATE_KEY_BASE64 is not a base64-encoded .p8 key"; exit 1; }
           echo "ASC_KEY_PATH=$key" >> "$GITHUB_ENV"
 
+      - name: Check for an earlier upload of this build
+        id: existing
+        # Re-runs keep GITHUB_RUN_NUMBER and Apple rejects a second upload with
+        # the same build number; start a new run to get a new build.
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_BASE64: ${{ secrets.ASC_PRIVATE_KEY_BASE64 }}
+        run: |
+          code=0
+          python scripts/asc_builds.py --exists "$APP_BUILD" --version "$APP_VERSION" || code=$?
+          case "$code" in
+            0) echo "uploaded=true" >> "$GITHUB_OUTPUT"
+               echo "::notice::Build $APP_BUILD is already in App Store Connect; skipping build and upload" ;;
+            2) echo "uploaded=false" >> "$GITHUB_OUTPUT" ;;
+            *) exit "$code" ;;
+          esac
+
+      - name: Cache Godot and export templates
+        if: steps.existing.outputs.uploaded != 'true'
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/mazeborn/godot
+            ~/Library/Application Support/Godot/export_templates
+          key: godot-${{ runner.os }}-${{ hashFiles('.godot-version') }}
+
+      - name: Show Xcode version
+        if: steps.existing.outputs.uploaded != 'true'
+        run: xcodebuild -version
+
+      - name: Export Godot project to Xcode
+        if: steps.existing.outputs.uploaded != 'true'
+        run: scripts/export-ios.sh "$APP_BUILD"
+
       - name: Archive
+        if: steps.existing.outputs.uploaded != 'true'
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -118,6 +144,7 @@ jobs:
             archive
 
       - name: Check version in archive
+        if: steps.existing.outputs.uploaded != 'true'
         run: |
           apps=("$RUNNER_TEMP"/Mazeborn.xcarchive/Products/Applications/*.app)
           plist="${apps[0]}/Info.plist"
@@ -130,6 +157,7 @@ jobs:
           fi
 
       - name: Export and upload to App Store Connect
+        if: steps.existing.outputs.uploaded != 'true'
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -144,14 +172,21 @@ jobs:
             -authenticationKeyIssuerID "$ASC_ISSUER_ID"
 
       - name: Set "What to Test"
+        id: whats_new
         # Runs as soon as the build shows up in App Store Connect, so the
-        # text is there before Apple notifies the testers.
+        # text is there before Apple notifies the testers. Not fatal: the
+        # wait below decides whether the job passes.
+        continue-on-error: true
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_PRIVATE_KEY_BASE64: ${{ secrets.ASC_PRIVATE_KEY_BASE64 }}
           GH_TOKEN: ${{ github.token }}
         run: python scripts/asc_whats_new.py --build "$APP_BUILD" --version "$APP_VERSION" --timeout 30
+
+      - name: Warn if "What to Test" was not set
+        if: steps.whats_new.outcome == 'failure'
+        run: echo '::warning::What to Test was not set for this build; see the "Set What to Test" step and the run summary'
 
       - name: Wait for Apple to process the build
         env:

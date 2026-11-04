@@ -10,8 +10,11 @@ krever at workflowen opprettes én gang fra Xcode på en mac.
 ## Ny TestFlight-versjon
 
 ```bash
-git tag v0.2.0 && git push --tags
+git tag v0.2.0 && git push origin v0.2.0
 ```
+
+Push én tagg om gangen. GitHub starter ingen workflows når mer enn tre tagger
+pushes samtidig, så `git push --tags` med mange lokale tagger gir ingen build.
 
 Det er alt. Workflowen bygger versjon `0.2.0`, laster den opp, setter
 «What to Test» og venter til Apple er ferdig. Testergruppen «meg» er intern og har
@@ -22,6 +25,13 @@ avviser builden eller ikke er ferdig innen 45 minutter.
 Taggen må være `v` etterfulgt av ett til tre tall (`v1`, `v0.2`, `v0.2.0`), fordi
 iOS krever det for `CFBundleShortVersionString`. `v0.2.0-beta` stoppes i første steg.
 
+**Kjøre på nytt:** «Re-run failed jobs» beholder `GITHUB_RUN_NUMBER` og dermed
+byggnummeret, og Apple avviser en ny opplasting med samme nummer. Har Apple
+allerede builden, hopper workflowen derfor over bygging og opplasting
+(`scripts/asc_builds.py --exists`) og gjør bare «What to Test» og ventingen på nytt.
+Trenger du en ny build, for eksempel fordi den forrige ble `INVALID`, starter du en
+ny kjøring (Run workflow) eller pusher en ny tagg.
+
 Manuell kjøring (Actions → iOS TestFlight → Run workflow) på en branch bruker
 versjonen i `game/export_presets.cfg` (`application/short_version`, nå `0.1.0`).
 Velger du en tagg som ref, brukes taggens versjon.
@@ -30,6 +40,8 @@ Velger du en tagg som ref, brukes taggens versjon.
 
 1. **Versjon og byggnummer:** `APP_VERSION` kommer fra taggen (`v0.2.0` → `0.2.0`),
    ellers fra `export_presets.cfg`. Byggnummeret er `GITHUB_RUN_NUMBER + 100`.
+   Finnes builden allerede i App Store Connect (ved ny kjøring av samme run),
+   hoppes steg 2–4 over.
 2. `scripts/export-ios.sh <build>` laster ned Godot og eksportmalene for
    versjonen i `.godot-version` (`scripts/godot.sh`) og eksporterer `game/` til
    `ios/Mazeborn.xcodeproj` med det gitte byggnummeret. Dette virker også på Linux.
@@ -47,10 +59,14 @@ Velger du en tagg som ref, brukes taggens versjon.
    TestFlight-kjøring. Ved manuell kjøring på en branch er det de siste 15 PR-ene.
    Teksten kortes ned til Apples grense på 4000 tegn, og den vises også i
    oppsummeringen av kjøringen. Språket er appens primærspråk (`no`, norsk) pluss
-   eventuelle TestFlight-lokaliseringer.
+   eventuelle TestFlight-lokaliseringer. Steget har til sammen 30 minutter. Feiler
+   det, blir det bare en advarsel i oppsummeringen, og jobben fortsetter. Ved 409 fra
+   Apple bytter scriptet til oppdatering hvis teksten allerede finnes, gir opp hvis
+   builden er `INVALID`/`FAILED`, og prøver bare på nytt mens builden behandles.
 6. `scripts/asc_builds.py --wait <build> --version <versjon>` venter på
    `processingState`. `VALID` gir grønn jobb. `INVALID`/`FAILED`, en feilet opplasting
-   eller tidsavbrudd etter 45 minutter gir rød jobb.
+   eller tidsavbrudd etter 45 minutter gir rød jobb. Jobben har en grense på
+   150 minutter, så scriptenes feilmeldinger kommer før GitHub avbryter.
 
 Sjekk lokalt (bare lesing mot App Store Connect, krever `ASC_*`-variablene og
 `pip install pyjwt cryptography`):
@@ -58,6 +74,7 @@ Sjekk lokalt (bare lesing mot App Store Connect, krever `ASC_*`-variablene og
 ```bash
 scripts/asc_builds.py                                  # siste opplastinger og bygg
 scripts/asc_builds.py --wait 107 --version 0.2.0       # vent på et bygg
+scripts/asc_builds.py --exists 107 --version 0.2.0     # 0 hvis Apple har builden, ellers 2
 scripts/asc_whats_new.py --build 107 --version 0.2.0 --tag v0.2.0 --dry-run
 ```
 
@@ -87,7 +104,7 @@ Når `game/export_presets.cfg` eller Godot-versjonen endres: kjør
    - `ASC_KEY_ID`: Key ID
    - `ASC_ISSUER_ID`: Issuer ID
    - `ASC_PRIVATE_KEY_BASE64`: `.p8`-filen base64-kodet (`base64 -i AuthKey_XXXX.p8`)
-5. **Kjør:** `git tag v0.2.0 && git push --tags`, eller Actions → iOS TestFlight →
+5. **Kjør:** `git tag v0.2.0 && git push origin v0.2.0`, eller Actions → iOS TestFlight →
    Run workflow. Builden er klar i TestFlight når jobben er grønn.
 
 Secrets er ikke tilgjengelige for PR-er fra forks, og iOS-workflowen kjører bare

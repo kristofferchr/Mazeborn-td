@@ -5,10 +5,12 @@ Read-only. Needs ASC_KEY_ID, ASC_ISSUER_ID and ASC_PRIVATE_KEY_BASE64 in the
 environment (set in the Claude Code cloud environment and as GitHub secrets)
 and `pip install pyjwt cryptography`.
 
-Usage: scripts/asc_builds.py [--wait BUILD_NUMBER] [--version X.Y.Z] [--timeout MINUTES]
+Usage: scripts/asc_builds.py [--wait|--exists BUILD_NUMBER] [--version X.Y.Z] [--timeout MINUTES]
   --wait     poll every minute until that build is processed by Apple.
              Exits 0 when it is VALID, 1 if the upload or build fails
              (FAILED/INVALID) or if it is not processed within --timeout.
+  --exists   exit 0 if App Store Connect already has an upload or build with
+             that number (e.g. when a workflow run is re-run), else 2.
   --version  only match the build in that version (CFBundleShortVersionString).
   --timeout  minutes to wait (default 45).
 
@@ -162,13 +164,25 @@ def wait(app, number, version, timeout_min):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--wait", metavar="BUILD_NUMBER")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--wait", metavar="BUILD_NUMBER")
+    mode.add_argument("--exists", metavar="BUILD_NUMBER")
     parser.add_argument("--version")
     parser.add_argument("--timeout", type=int, default=45, metavar="MINUTES")
     args = parser.parse_args()
     app = app_id()
     if args.wait:
         return wait(app, args.wait, args.version, args.timeout)
+    if args.exists:
+        upload = find_upload(app, args.exists, args.version)
+        build = find_build(app, args.exists, args.version)
+        if not upload and not build:
+            print(f"build {args.exists} is not in App Store Connect yet")
+            return 2
+        upload_state = ((upload or {}).get("state") or {}).get("state")
+        build_state = build["attributes"]["processingState"] if build else None
+        print(f"build {args.exists} is already in App Store Connect: upload={upload_state} build={build_state}")
+        return 0
     show(app)
     return 0
 
