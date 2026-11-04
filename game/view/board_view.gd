@@ -69,6 +69,14 @@ const POISON_TINT := Color(0.3, 0.9, 0.2, 0.45)
 const BURN_TINT := Color(1.0, 0.45, 0.1, 0.5)
 const STUN_TINT := Color(1.0, 1.0, 0.7, 0.6)
 const SLOW_TINT := Color(0.5, 0.8, 1.0, 0.5)
+const ENRAGE_TINT := Color(1.0, 0.12, 0.08, 0.45)
+const SHIMMER_TINT := Color(1.0, 0.85, 0.3)  # invulnerable phase (alpha pulses)
+const HEAL_COLOR := Color(0.4, 1.0, 0.5)
+const SHIELD_COLOR := Color(0.4, 0.65, 1.0)
+const SUMMON_COLOR := Color(0.75, 0.4, 1.0)
+const SPLIT_COLOR := Color(0.6, 0.95, 0.4)
+const HIDDEN_ALPHA := 0.3  # how much of an invisible creep shows while hidden
+const REVEALED_ALPHA := 0.65  # ... and while a tower reveals it
 const FLY_HEIGHT := 1.1
 const OK_COLOR := Color(0.35, 1.0, 0.55)
 const BAD_COLOR := Color(1.0, 0.3, 0.25)
@@ -91,6 +99,7 @@ var _ghost_ok := {}  # kind -> last preview colour state
 var _cell: MeshInstance3D
 var _ring: MeshInstance3D
 var _projectiles: Dictionary = {}  # projectile id -> Node3D
+var _overlays: Dictionary = {}  # status -> shared overlay material
 var _grid_alpha := 0.05
 var _stone_mats: Array[StandardMaterial3D] = []
 
@@ -99,11 +108,12 @@ static func cell_pos(cell: Vector2i, height := 0.0) -> Vector3:
 	return Vector3(cell.x + 0.5, height, cell.y + 0.5)
 
 
-## Extra size of a creep on top of its model size: the boss is bigger, the rest
-## grow a little with health.
-static func creep_scale(creep: Creep) -> float:
-	if creep.kind == "boss":
-		return 1.4
+## Extra size of a creep on top of its model size: "scale" from the creep data
+## (bosses are bigger, spawnlings small), else a little bigger with health.
+func creep_scale(creep: Creep) -> float:
+	var s := float(game.creep_defs.get(creep.kind, {}).get("scale", 0.0))
+	if s > 0.0:
+		return s
 	return clampf(0.95 + creep.max_hp / 4000.0, 1.0, 1.15)
 
 
@@ -146,6 +156,31 @@ func setup(p_game: Game) -> void:
 	game.creep_spawned.connect(_on_creep_spawned)
 	game.creep_killed.connect(_on_creep_removed.bind(true))
 	game.creep_leaked.connect(_on_creep_removed.bind(false))
+	game.creep_healed.connect(
+		func(c: Creep, r: float) -> void: _splash(creep_world_pos(c), r, HEAL_COLOR)
+	)
+	game.creep_summoned.connect(
+		func(c: Creep, _kids: Array[Creep]) -> void: _splash(creep_world_pos(c), 1.4, SUMMON_COLOR)
+	)
+	game.creep_split.connect(
+		func(c: Creep, _kids: Array[Creep]) -> void: _splash(creep_world_pos(c), 0.9, SPLIT_COLOR)
+	)
+	game.boss_phase.connect(
+		func(c: Creep, _n: int) -> void: _splash(creep_world_pos(c), 1.8, SHIMMER_TINT)
+	)
+	game.boss_enraged.connect(
+		func(c: Creep) -> void: _splash(creep_world_pos(c), 1.5, Color(ENRAGE_TINT, 1.0))
+	)
+	for key: String in ["stun", "slow", "burn", "poison", "enrage", "shimmer"]:
+		var tint: Color = {
+			"stun": STUN_TINT,
+			"slow": SLOW_TINT,
+			"burn": BURN_TINT,
+			"poison": POISON_TINT,
+			"enrage": ENRAGE_TINT,
+			"shimmer": Color(SHIMMER_TINT, 0.5),
+		}[key]
+		_overlays[key] = mat(tint, true)
 	effects = Effects.new()
 	add_child(effects)
 	effects.setup(game, self)
@@ -209,6 +244,7 @@ func _set_grid_alpha(a: float) -> void:
 
 func _process(_delta: float) -> void:
 	var t := Time.get_ticks_msec() / 1000.0
+	(_overlays.shimmer as StandardMaterial3D).albedo_color.a = 0.35 + 0.3 * sin(t * 18.0)
 	for creep in game.creeps:
 		var node: Node3D = _creeps.get(creep.id)
 		if node == null:
@@ -221,28 +257,63 @@ func _process(_delta: float) -> void:
 		if dir.length_squared() > 0.000001:
 			node.rotation.y = atan2(dir.x, dir.z)
 		_tint(node, creep)
+		_fade(node, creep)
+		var bubble: Node3D = node.get_node_or_null("Shield")
+		if bubble:
+			bubble.visible = creep.shield > 0.0
 	_update_projectiles()
 
 
-## Overlay tint: blue while slowed, green while poisoned, none otherwise.
+## Overlay tint: a shimmer while invulnerable, then stun, slow, burn, poison,
+## and red while enraged; none otherwise.
 func _tint(node: Node3D, creep: Creep) -> void:
-	var tint := Color(0, 0, 0, 0)
-	if creep.stun_time > 0.0:
-		tint = STUN_TINT
+	var key := ""
+	if creep.invulnerable_time > 0.0:
+		key = "shimmer"
+	elif creep.stun_time > 0.0:
+		key = "stun"
 	elif creep.slow > 0.0:
-		tint = SLOW_TINT
+		key = "slow"
 	elif creep.burn_time > 0.0:
-		tint = BURN_TINT
+		key = "burn"
 	elif not creep.poison.is_empty():
-		tint = POISON_TINT
-	if tint == node.get_meta("tint", Color(0, 0, 0, 0)):
+		key = "poison"
+	elif creep.enraged:
+		key = "enrage"
+	if key == node.get_meta("tint", ""):
 		return
-	node.set_meta("tint", tint)
-	var overlay: StandardMaterial3D = null
-	if tint.a > 0.0:
-		overlay = mat(tint, true)
-	for m: MeshInstance3D in node.find_children("*", "MeshInstance3D", true, false):
+	node.set_meta("tint", key)
+	var overlay: StandardMaterial3D = _overlays.get(key)
+	for m: MeshInstance3D in _body_meshes(node):
 		m.material_overlay = overlay
+
+
+## Invisible creeps are see-through: faint while hidden, clearer while revealed.
+## Their materials are swapped for transparent copies (the Compatibility
+## renderer ignores GeometryInstance3D.transparency).
+func _fade(node: Node3D, creep: Creep) -> void:
+	if not creep.invisible:
+		return
+	var alpha := REVEALED_ALPHA if creep.revealed else HIDDEN_ALPHA
+	if is_equal_approx(alpha, node.get_meta("alpha", 1.0)):
+		return
+	node.set_meta("alpha", alpha)
+	for m: MeshInstance3D in _body_meshes(node):
+		for i in m.mesh.get_surface_count():
+			var faded := m.get_surface_override_material(i) as BaseMaterial3D
+			if faded == null or not faded.has_meta("faded"):
+				var source := m.get_active_material(i) as BaseMaterial3D
+				if source == null:
+					continue
+				faded = source.duplicate() as BaseMaterial3D
+				faded.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+				faded.set_meta("faded", true)
+				m.set_surface_override_material(i, faded)
+			faded.albedo_color.a = alpha
+
+
+func _body_meshes(node: Node3D) -> Array[Node]:
+	return node.get_node("Body").find_children("*", "MeshInstance3D", true, false)
 
 
 func _build_world() -> void:
@@ -758,11 +829,12 @@ func _splash(at: Vector3, radius: float, color: Color) -> void:
 
 
 func _on_creep_spawned(creep: Creep) -> void:
-	var model_id := CreepArt.model_for(creep.kind, game.waves, game.wave)
+	var model_id := CreepArt.model_of(creep, game.waves, game.wave)
 	var root := Node3D.new()
 	var body := CreepArt.instantiate(model_id)
 	root.add_child(body)
 	root.scale = Vector3.ONE * creep_scale(creep)
+	_ability_marks(root, creep, CreepArt.top(model_id))
 	root.position = creep_world_pos(creep)
 	add_child(root)
 	_creeps[creep.id] = root
@@ -778,6 +850,25 @@ func _on_creep_spawned(creep: Creep) -> void:
 			player.seek(fposmod(creep.id * 0.37, player.current_animation_length))
 
 
+## Marks that stay with a creep: a faint ring for a healer's reach and a
+## bubble while its shield holds.
+func _ability_marks(root: Node3D, creep: Creep, top: float) -> void:
+	var s := creep_scale(creep)
+	if creep.abilities.has("heal"):
+		var r := float(creep.abilities.heal.get("radius", 2.0)) / s
+		var ring := _mesh(_ring_mesh(0.9, 1.0), Color(HEAL_COLOR, 0.25), true)
+		ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		ring.scale = Vector3(r, 1.0, r)
+		ring.position.y = 0.06 / s
+		root.add_child(ring)
+	if creep.max_shield > 0.0:
+		var bubble := _mesh(_sphere(top * 0.62), Color(SHIELD_COLOR, 0.3), true)
+		bubble.name = "Shield"
+		bubble.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		bubble.position.y = top * 0.5
+		root.add_child(bubble)
+
+
 func _on_creep_removed(creep: Creep, killed: bool) -> void:
 	var node: Node3D = _creeps.get(creep.id)
 	var model_id: String = _creep_models.get(creep.id, CreepArt.DEFAULT)
@@ -790,8 +881,11 @@ func _on_creep_removed(creep: Creep, killed: bool) -> void:
 	# Keep the model id while the body is shown, so effects connected after
 	# this handler (death puff, last damage number) still find its height.
 	node.tree_exiting.connect(func() -> void: _creep_models.erase(creep.id))
-	for m: MeshInstance3D in node.find_children("*", "MeshInstance3D", true, false):
+	for m: MeshInstance3D in _body_meshes(node):
 		m.material_overlay = null
+	for child in node.get_children():
+		if child.name != "Body":
+			child.queue_free()
 	var tw := create_tween()
 	var player := CreepArt.player(node)
 	var death := CreepArt.find_animation(player, CreepArt.info(model_id).death) if player else ""

@@ -147,3 +147,33 @@ func test_bot_wins_every_map() -> void:
 		var game := Game.create_map(id, 3)
 		var won := Bot.new(game).play()
 		t.check(won, "bot wins %s (wave %d, lives %d)" % [id, game.wave, game.lives])
+
+
+func test_split_children_follow_their_parent_from_the_second_spawn() -> void:
+	var game := Game.create_map("tvillingportene")
+	var group := {"creep": "normal", "count": 2, "hp": 10, "interval": 0.1, "bounty": 1}
+	group.abilities = {"split": {"count": 2, "hp": 5}}
+	game.waves[0] = {"groups": [group]}
+	game.start_wave()
+	while game.creeps.size() < 2 and game.ticks < 1000:
+		game.step()
+	var parent := game.creeps[1]
+	t.eq(parent.path[0], game.grid.spawns[1], "second creep starts at the second spawn")
+	for i in 20:
+		game.step()
+	var path := parent.path.duplicate()
+	parent.hp = 0.0
+	game._reap()
+	var children := game.creeps.filter(func(c: Creep) -> bool: return c.id > parent.id)
+	t.eq(children.size(), 2, "two children")
+	for c: Creep in children:
+		t.eq(c.path, path, "child walks the parent's path")
+		t.eq(c.max_hp, 5.0, "flat child health (hp_scale 1)")
+
+
+func test_split_children_follow_the_map_hp_scale() -> void:
+	var game := Game.create_map("klofta")
+	var parent := game.new_creep("normal", 100.0, 1, {}, game.grid.spawn)
+	parent.set_path(game.grid.path())
+	var children := game._spawn_children(parent, {"count": 1, "hp": 10, "hp_percent": 0.1})
+	t.eq(children[0].max_hp, 10.0 * 1.1 + 10.0, "flat part scaled, percent of the parent")

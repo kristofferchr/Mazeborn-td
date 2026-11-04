@@ -1,10 +1,12 @@
 class_name Bot
 extends RefCounted
 ## Bot that builds a serpentine maze (MazePlan) with mixed tower kinds, adds air
-## towers before flying waves and upgrades once the maze is done. Used by the
-## balance tool and the map tests.
+## towers before flying waves, upgrades arrows along the maze to sharpshooters
+## (they reveal invisible creeps) before invisible waves and upgrades once the
+## maze is done. Used by the balance tool and the map tests.
 
 const AIR_FOR_FLYERS := 6
+const REVEAL_EVERY := 8  # a revealing tower every this many towers along the maze
 
 var game: Game
 var plan: Array[Vector2i]
@@ -38,6 +40,8 @@ func play_wave() -> void:
 func spend() -> void:
 	if "Flygende" in game.wave_tags(game.next_wave()):
 		_air_towers()
+	if "Usynlig" in game.wave_tags(game.next_wave()):
+		_revealers()
 	# Build the maze; after two walls, alternate between building and upgrading.
 	var build_next := true
 	while true:
@@ -90,6 +94,17 @@ func _upgrade_cheapest() -> bool:
 			best_option = option
 			best_cost = tower.upgrade_cost(option)
 	return best.x >= 0 and game.upgrade(best, best_option)
+
+
+## Upgrades arrows spread along the maze until they reveal invisible creeps.
+func _revealers() -> void:
+	for i in range(REVEAL_EVERY / 2, plan.size(), REVEAL_EVERY):
+		for j in range(i, mini(i + 3, plan.size())):
+			var tower := game.tower_at(plan[j])
+			if tower != null and tower.kind == "arrow":
+				while not tower.reveals() and game.upgrade(plan[j]):
+					pass
+				break
 
 
 ## Arrow for the first wall (cheap mazing), then a mix along the maze.

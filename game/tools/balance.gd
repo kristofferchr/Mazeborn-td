@@ -22,11 +22,14 @@ func _play(id: String, seed_value: int) -> String:
 	var g := Game.create_map(id, seed_value)
 	print("== %s (%s)" % [g.map.get("name", id), id])
 	var bot := Bot.new(g)
+	var leaked_kinds := {}  # kind -> count in the wave just played
+	var count_leak := func(c: Creep) -> void: leaked_kinds[c.kind] = 1 + leaked_kinds.get(c.kind, 0)
+	g.creep_leaked.connect(count_leak)
 	bot.play(
 		func(b: Bot) -> void:
 			print(
 				(
-					"wave %2d %-22s lives %2d leaked %2d gold %3d towers %2d upgrades %2d path %s"
+					"wave %2d %-26s lives %2d leaked %2d gold %3d towers %2d upgrades %2d path %s %s"
 					% [
 						g.wave,
 						", ".join(g.wave_tags(g.waves[g.wave - 1])),
@@ -36,10 +39,13 @@ func _play(id: String, seed_value: int) -> String:
 						g.towers.size(),
 						b.upgrades(),
 						_paths(g),
+						leaked_kinds if not leaked_kinds.is_empty() else "",
 					]
 				)
 			)
+			leaked_kinds.clear()
 	)
+	g.creep_leaked.disconnect(count_leak)
 	print(_board(g))
 	var result := "%-16s %-4s lives %2d" % [id, Game.Phase.keys()[g.phase], g.lives]
 	print("result: ", result)
