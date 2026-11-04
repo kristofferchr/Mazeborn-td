@@ -7,7 +7,9 @@ extends RefCounted
 ##
 ## Config: start_gold, lives, wave_bonus, early_bonus, interest_rate,
 ## interest_max and waves (data/waves.json), towers (data/towers.json), creeps
-## (data/creeps.json) and hp_scale (creep health, a map rule). The board comes
+## (data/creeps.json), hp_scale (creep health, a map rule) and bounty_scale
+## (gold per kill). A difficulty (Difficulty, data/difficulty.json) scales these
+## on top of the map's rules. The board comes
 ## from a map (data/maps/, see Maps); creeps take turns between its spawns.
 ## Creep abilities are data too: a creep kind lists them under "abilities" and a
 ## wave group may override them (see Creep.setup_abilities, _heal, _spawn_children).
@@ -54,6 +56,7 @@ var map: Dictionary = {}  # the map definition (data/maps/), {} for a custom gri
 var phase := Phase.BUILD
 var gold: int
 var lives: int
+var start_lives: int  # lives at the start of the round
 var wave := 0  # number of the last started wave (1-based)
 var waves: Array[Dictionary] = []
 var tower_defs: Dictionary  # kind -> definition with levels
@@ -67,7 +70,12 @@ var towers: Dictionary = {}  # Vector2i -> Tower
 var projectiles: Array[Projectile] = []
 var interest_rate: float  # share of unspent gold paid when a wave is cleared
 var interest_max: int
-var hp_scale: float  # creep health multiplier (a map rule, 1.0 by default)
+var hp_scale: float  # creep health multiplier (map rule times difficulty, 1.0 by default)
+var bounty_scale: float  # gold per kill multiplier (difficulty, 1.0 by default)
+var difficulty := Difficulty.DEFAULT
+## Options the round was made with ({"difficulty": "normal", ...}). Keys this
+## class does not know are kept, so other modes can add their own.
+var options: Dictionary = {}
 var ticks := 0
 var rng := RandomNumberGenerator.new()
 
@@ -84,11 +92,13 @@ func _init(config: Dictionary, p_grid: Grid, seed_value := 1) -> void:
 	rng.seed = seed_value
 	gold = int(config.start_gold)
 	lives = int(config.lives)
+	start_lives = lives
 	wave_bonus = int(config.get("wave_bonus", 0))
 	early_bonus = int(config.get("early_bonus", 0))
 	interest_rate = float(config.get("interest_rate", 0.0))
 	interest_max = int(config.get("interest_max", 0))
 	hp_scale = float(config.get("hp_scale", 1.0))
+	bounty_scale = float(config.get("bounty_scale", 1.0))
 	tower_defs = config.towers.towers
 	refund_rate = float(config.towers.refund)
 	for kind: Variant in config.towers.get("order", tower_defs.keys()):
@@ -104,13 +114,23 @@ static func create_default(seed_value := 1) -> Game:
 
 
 ## A round on the map with this id (data/maps/<id>.json). The map's "rules"
-## override the shared config (start gold, lives ...).
-static func create_map(map_id: String, seed_value := 1) -> Game:
+## override the shared config (start gold, lives ...), then the difficulty in
+## options ("difficulty": an id from data/difficulty.json, default "normal")
+## scales it. Every option is kept in Game.options, also unknown ones.
+static func create_map(map_id: String, seed_value := 1, p_options := {}) -> Game:
 	var m := Maps.load_map(map_id)
 	var config := default_config()
 	config.merge(m.get("rules", {}), true)
+	var opts: Dictionary = p_options.duplicate(true)
+	var level := str(opts.get("difficulty", Difficulty.DEFAULT))
+	if not Difficulty.exists(level):
+		level = Difficulty.DEFAULT
+	opts.difficulty = level
+	Difficulty.apply(config, level)
 	var g := Game.new(config, Maps.grid(m), seed_value)
 	g.map = m
+	g.difficulty = level
+	g.options = opts
 	return g
 
 
@@ -357,7 +377,7 @@ func _spawn() -> void:
 	var kind := str(g.get("creep", "normal"))
 	var from := spawn_for(_spawned)
 	_spawned += 1
-	var creep := new_creep(kind, creep_hp(g), int(g.bounty), g, from)
+	var creep := new_creep(kind, creep_hp(g), creep_bounty(int(g.bounty)), g, from)
 	if creep.flying:
 		creep.set_path([grid.goal])
 	else:
@@ -373,6 +393,14 @@ func _spawn() -> void:
 ## Health of the creeps of a wave group on this map (hp_scale applied).
 func creep_hp(group: Dictionary) -> float:
 	return float(group.hp) * hp_scale
+
+
+## Gold for killing a creep worth `base` on this difficulty (bounty_scale
+## applied, rounded, at least 1 when the base pays anything).
+func creep_bounty(base: int) -> int:
+	if base <= 0:
+		return 0
+	return maxi(roundi(base * bounty_scale), 1)
 
 
 ## Spawn of the n-th creep of the round (0-based): the spawns take turns.
@@ -440,7 +468,7 @@ func _heal(healer: Creep, p: Dictionary) -> void:
 
 ## Small creeps where `parent` is ("split" when it dies, "summon" while it lives).
 ## Parameters: count, creep (kind), hp (times hp_scale, plus hp_percent of the
-## parent's max hp), speed, bounty and model (default: the parent's). They walk
+## parent's max hp), speed, bounty (times bounty_scale) and model (default: the parent's). They walk
 ## on along the parent's path from its current cell, a little behind each other.
 func _spawn_children(parent: Creep, p: Dictionary) -> Array[Creep]:
 	var kind := str(p.get("creep", "spawnling"))
@@ -455,7 +483,8 @@ func _spawn_children(parent: Creep, p: Dictionary) -> Array[Creep]:
 	params.abilities = child_abilities
 	var out: Array[Creep] = []
 	for i in int(p.get("count", 2)):
-		var c := new_creep(kind, hp, int(p.get("bounty", 1)), params, parent.prev_cell)
+		var bounty := creep_bounty(int(p.get("bounty", 1)))
+		var c := new_creep(kind, hp, bounty, params, parent.prev_cell)
 		c.flying = c.flying or parent.flying  # flyers from the data stay flyers
 		c.path = parent.path.duplicate()
 		c.next_index = parent.next_index
