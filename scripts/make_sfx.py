@@ -691,7 +691,9 @@ def main():
     parser.add_argument("--wav", action="store_true", help="write WAV even if ffmpeg exists")
     args = parser.parse_args()
     os.makedirs(args.out_dir, exist_ok=True)
-    use_ogg = not args.wav and shutil.which("ffmpeg") is not None
+    if not args.wav and shutil.which("ffmpeg") is None:
+        sys.exit("ffmpeg is needed to write the .ogg files the game loads (or pass --wav)")
+    use_ogg = not args.wav
     names = [args.only] if args.only else list(SOUNDS)
     total = 0
     for name in names:

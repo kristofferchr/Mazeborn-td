@@ -18,7 +18,6 @@ var _hp: Dictionary = {}  # creep id -> hp seen last frame
 var _pending: Dictionary = {}  # creep id -> damage not shown yet
 var _wait: Dictionary = {}  # creep id -> seconds until the next number may show
 var _numbers: Array[Label] = []
-var _next_number := 0
 var _vignette: ColorRect
 var _vignette_tween: Tween
 var _banner: PanelContainer
@@ -85,7 +84,8 @@ func _forget(creep: Creep) -> void:
 
 func _on_creep_killed(creep: Creep) -> void:
 	var last: float = _hp.get(creep.id, creep.max_hp)
-	var damage := float(_pending.get(creep.id, 0.0)) + maxf(last - creep.hp, 0.0)
+	# Damage actually dealt: hp can go below zero on the killing blow.
+	var damage := float(_pending.get(creep.id, 0.0)) + maxf(last - maxf(creep.hp, 0.0), 0.0)
 	_forget(creep)
 	if damage >= 1.0:
 		_show_number(creep, damage)
@@ -104,8 +104,10 @@ func _show_number(creep: Creep, damage: float) -> void:
 	if camera.is_position_behind(world):
 		return
 	var at := camera.unproject_position(world) + Vector2(randf_range(-26, 26), randf_range(-8, 4))
-	var size := number_size(damage, creep.max_hp)
 	var label := _number_label()
+	if label == null:
+		return  # every label is still animating: skip rather than flicker
+	var size := number_size(damage, creep.max_hp)
 	label.text = str(roundi(damage))
 	label.add_theme_font_size_override("font_size", size)
 	var big := size > 21
@@ -128,7 +130,11 @@ func _show_number(creep: Creep, damage: float) -> void:
 	tw.chain().tween_callback(label.hide)
 
 
+## A free label for a number, or null when all MAX_NUMBERS are still showing.
 func _number_label() -> Label:
+	for l in _numbers:
+		if not l.visible:
+			return l
 	if _numbers.size() < MAX_NUMBERS:
 		var l := UiStyle.label("", 21, Color.WHITE, true)
 		l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
@@ -137,9 +143,7 @@ func _number_label() -> Label:
 		add_child(l)
 		_numbers.append(l)
 		return l
-	var reused := _numbers[_next_number]
-	_next_number = (_next_number + 1) % _numbers.size()
-	return reused
+	return null
 
 
 # --- Leak vignette --------------------------------------------------------------
