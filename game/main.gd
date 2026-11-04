@@ -11,6 +11,7 @@ var game: Game
 var board: BoardView
 var camera: CameraRig
 var hud: Hud
+var audio: GameAudio
 var speed := 1.0
 var selected := NO_CELL
 var build_kind := "arrow"  # tower kind chosen in the build menu
@@ -46,6 +47,13 @@ func _ready() -> void:
 	hud.speed_pressed.connect(_toggle_speed)
 	hud.retry_pressed.connect(func() -> void: get_tree().reload_current_scene())
 	game.game_over.connect(func(_won: bool) -> void: _select(NO_CELL))
+
+	audio = GameAudio.new()
+	add_child(audio)
+	audio.setup(game)
+	hud.set_muted(audio.muted)
+	hud.mute_pressed.connect(audio.toggle_muted)
+	audio.muted_changed.connect(hud.set_muted)
 
 
 func _process(delta: float) -> void:

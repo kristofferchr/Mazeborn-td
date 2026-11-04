@@ -1,7 +1,8 @@
 class_name Hud
 extends CanvasLayer
 ## Heads-up display: resources, wave controls, the next-wave card, the build
-## menu and tower panel, health bars, floating gold and the end screen.
+## menu and tower panel, health bars, floating gold, the mute button and the
+## end screen.
 ## Reads the game state; user actions are sent out as signals. Look: UiStyle.
 
 signal start_wave_pressed
@@ -11,6 +12,7 @@ signal upgrade_pressed(option: String)
 signal sell_pressed
 signal targeting_pressed
 signal speed_pressed
+signal mute_pressed
 signal retry_pressed
 
 const MARGIN := 20.0
@@ -39,6 +41,8 @@ var _gold: Label
 var _lives: Label
 var _wave: Label
 var _speed: Button
+var _mute: Button
+var _mute_icon: UiIcon
 var _start: Button
 var _next: PanelContainer
 var _next_title: Label
@@ -132,6 +136,13 @@ func show_selection(cell: Vector2i, has_selection: bool, build_kind: String) -> 
 
 func set_speed_text(text: String) -> void:
 	_speed.text = text
+
+
+## Shows the sound on/off icon on the mute button.
+func set_muted(muted: bool) -> void:
+	_mute_icon.kind = "sound_off" if muted else "sound"
+	_mute_icon.color = UiStyle.MUTED if muted else UiStyle.TEXT
+	_mute_icon.queue_redraw()
 
 
 func _process(_delta: float) -> void:
@@ -345,6 +356,16 @@ func _build() -> void:
 	_speed.custom_minimum_size = Vector2(92, 72)
 	_root.add_child(_speed)
 
+	_mute = _button("", "secondary", func() -> void: mute_pressed.emit())
+	_mute.custom_minimum_size = Vector2(72, 72)
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_mute.add_child(center)
+	_mute_icon = UiIcon.make("sound", UiStyle.TEXT, 36)
+	center.add_child(_mute_icon)
+	_root.add_child(_mute)
+
 	_start = _button("Start bølge", "primary", func() -> void: start_wave_pressed.emit())
 	_start.custom_minimum_size = Vector2(300, 92)
 	_start.add_theme_font_size_override("font_size", 32)
@@ -353,7 +374,7 @@ func _build() -> void:
 	_build_next_card()
 	_build_panel()
 	_build_end_screen()
-	_ui = [_top, _speed, _start, _panel]
+	_ui = [_top, _speed, _mute, _start, _panel]
 
 
 func _build_next_card() -> void:
@@ -620,6 +641,8 @@ func _layout() -> void:
 	_top.position = Vector2(left, top)
 	_speed.size = _speed.custom_minimum_size
 	_speed.position = Vector2(right - _speed.size.x, top)
+	_mute.size = _mute.custom_minimum_size
+	_mute.position = Vector2(_speed.position.x - 12.0 - _mute.size.x, top)
 	_start.size = _start.custom_minimum_size
 	_start.position = Vector2(right - _start.size.x, bottom - _start.size.y)
 	_next.reset_size()
