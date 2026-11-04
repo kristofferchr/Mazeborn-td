@@ -9,7 +9,7 @@
 			"nodes": {
 				"arrow1": {"name": "Piltårn", "desc": "Billig og raskt", "cost": 10, "range": 3.0, "damage_min": 6, "damage_max": 9, "cooldown": 0.7, "projectile_speed": 14, "next": ["arrow2"]},
 				"arrow2": {"name": "Piltårn", "desc": "Mer skade og rekkevidde", "cost": 20, "range": 3.2, "damage_min": 14, "damage_max": 20, "cooldown": 0.65, "projectile_speed": 15, "next": ["arrow3"]},
-				"arrow3": {"name": "Piltårn", "desc": "Skarpskytter", "cost": 45, "range": 3.5, "damage_min": 32, "damage_max": 42, "cooldown": 0.6, "projectile_speed": 16}
+				"arrow3": {"name": "Piltårn", "desc": "Skarpskytter, avslører usynlige", "reveal": true, "cost": 45, "range": 3.5, "damage_min": 32, "damage_max": 42, "cooldown": 0.6, "projectile_speed": 16}
 			}
 		},
 		"earth": {
@@ -44,9 +44,9 @@
 				"ice": {"name": "Is", "desc": "Sakker ned målet", "element": "ice", "cost": 40, "range": 3.0, "damage_min": 18, "damage_max": 24, "cooldown": 0.8, "slow": 0.4, "slow_time": 2.0, "projectile_speed": 12, "next": ["blizzard", "frostlance"]},
 				"blizzard": {"name": "Blizzard", "desc": "Sakker ned alle i området", "element": "ice", "cost": 90, "range": 3.2, "damage_min": 30, "damage_max": 40, "cooldown": 0.9, "slow": 0.5, "slow_time": 2.5, "splash_radius": 1.6, "splash_factor": 0.5, "splash_effects": true, "projectile_speed": 12},
 				"frostlance": {"name": "Frostlanse", "desc": "Fryser enkeltmål", "element": "ice", "cost": 90, "range": 3.6, "damage_min": 90, "damage_max": 120, "cooldown": 1.2, "slow": 0.6, "slow_time": 3.0, "stun": 0.5, "projectile_speed": 18},
-				"lightning": {"name": "Lyn", "desc": "Hopper til 2 fiender til", "element": "lightning", "cost": 40, "range": 3.0, "damage_min": 24, "damage_max": 34, "cooldown": 0.7, "chain": 2, "chain_range": 2.0, "chain_factor": 0.7, "next": ["chainlightning", "storm"]},
-				"chainlightning": {"name": "Kjedelyn", "desc": "Hopper til 5 fiender til", "element": "lightning", "cost": 90, "range": 3.4, "damage_min": 50, "damage_max": 65, "cooldown": 0.7, "chain": 5, "chain_range": 2.4, "chain_factor": 0.8},
-				"storm": {"name": "Storm", "desc": "Skyter på 4 mål samtidig", "element": "lightning", "cost": 90, "range": 3.4, "damage_min": 26, "damage_max": 34, "cooldown": 0.45, "multishot": 4, "projectile_speed": 18},
+				"lightning": {"name": "Lyn", "desc": "Hopper videre, avslører usynlige", "element": "lightning", "reveal": true, "cost": 40, "range": 3.0, "damage_min": 24, "damage_max": 34, "cooldown": 0.7, "chain": 2, "chain_range": 2.0, "chain_factor": 0.7, "next": ["chainlightning", "storm"]},
+				"chainlightning": {"name": "Kjedelyn", "desc": "Hopper til 5 fiender, avslører usynlige", "element": "lightning", "reveal": true, "cost": 90, "range": 3.4, "damage_min": 50, "damage_max": 65, "cooldown": 0.7, "chain": 5, "chain_range": 2.4, "chain_factor": 0.8},
+				"storm": {"name": "Storm", "desc": "4 mål samtidig, avslører usynlige", "element": "lightning", "reveal": true, "cost": 90, "range": 3.4, "damage_min": 26, "damage_max": 34, "cooldown": 0.45, "multishot": 4, "projectile_speed": 18},
 				"nature": {"name": "Natur", "desc": "Gift som stables", "element": "nature", "cost": 40, "range": 3.0, "damage_min": 10, "damage_max": 14, "cooldown": 0.9, "poison_dps": 10, "poison_time": 4.0, "poison_stacks": 4, "projectile_speed": 10, "next": ["venom", "roots"]},
 				"venom": {"name": "Gift", "desc": "Sterk gift, 6 lag", "element": "nature", "cost": 90, "range": 3.3, "damage_min": 16, "damage_max": 20, "cooldown": 0.8, "poison_dps": 28, "poison_time": 4.0, "poison_stacks": 6, "projectile_speed": 10},
 				"roots": {"name": "Røtter", "desc": "Holder fast, ignorerer rustning", "element": "nature", "cost": 90, "range": 3.2, "damage_min": 60, "damage_max": 80, "cooldown": 1.3, "stun": 0.8, "armor_pierce": true, "projectile_speed": 10}

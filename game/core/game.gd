@@ -7,6 +7,8 @@ extends RefCounted
 ##
 ## Config: start_gold, lives, wave_bonus, early_bonus and waves (data/waves.json),
 ## towers (data/towers.json) and creeps (data/creeps.json).
+## Creep abilities are data too: a creep kind lists them under "abilities" and a
+## wave group may override them (see Creep.setup_abilities, _heal, _spawn_children).
 
 signal gold_changed(gold: int)
 signal lives_changed(lives: int)
@@ -21,6 +23,11 @@ signal gold_bonus(amount: int, reason: String)  # wave bonus, interest, early se
 signal creep_spawned(creep: Creep)
 signal creep_killed(creep: Creep)
 signal creep_leaked(creep: Creep)
+signal creep_healed(healer: Creep, radius: float)  # a heal pulse that healed someone
+signal creep_split(parent: Creep, children: Array[Creep])  # spawned when the parent died
+signal creep_summoned(summoner: Creep, children: Array[Creep])
+signal boss_phase(creep: Creep, phase: int)  # an invulnerable phase began (1-based)
+signal boss_enraged(creep: Creep)
 signal wave_started(number: int)
 signal wave_cleared(number: int)
 signal game_over(won: bool)
@@ -31,6 +38,14 @@ const DT := 1.0 / 30.0  # fixed simulation step in seconds
 const WAVES_FILE := "res://data/waves.json"
 const TOWERS_FILE := "res://data/towers.json"
 const CREEPS_FILE := "res://data/creeps.json"
+## Tag in the next-wave card for an ability a wave group adds to its creeps.
+const ABILITY_TAGS := {
+	"heal": "Helbreder",
+	"shield": "Skjold",
+	"split": "Deler seg",
+	"immune": "Immun",
+	"invisible": "Usynlig",
+}
 
 var grid: Grid
 var phase := Phase.BUILD
@@ -242,14 +257,24 @@ func wave_count(w: Dictionary) -> int:
 	return n
 
 
-## Labels for a wave: the tags of its creep kinds ("Rask", "Flygende" ...) and
-## its own tags from the data.
+## Labels for a wave: the tags of its creep kinds ("Rask", "Flygende" ...),
+## of abilities its groups add, and its own tags from the data.
 func wave_tags(w: Dictionary) -> Array[String]:
 	var tags: Array[String] = []
 	for g in wave_groups(w):
-		var tag := str(_creep_def(str(g.get("creep", "normal"))).get("tag", ""))
-		if tag != "" and tag not in tags:
-			tags.append(tag)
+		var group_tags: Array[String] = [
+			str(_creep_def(str(g.get("creep", "normal"))).get("tag", ""))
+		]
+		var over: Dictionary = g.get("abilities", {})
+		for ability: String in over:
+			var tag := str(ABILITY_TAGS.get(ability, ""))
+			if over[ability] == null or (over[ability] is bool and not over[ability]):
+				group_tags.erase(tag)  # the group removes this ability
+			else:
+				group_tags.append(tag)
+		for tag in group_tags:
+			if tag != "" and tag not in tags:
+				tags.append(tag)
 	for tag: Variant in w.get("tags", []):
 		if str(tag) not in tags:
 			tags.append(str(tag))
@@ -289,10 +314,12 @@ func step() -> void:
 		return
 	ticks += 1
 	_spawn()
+	_use_abilities()
 	_tick_effects()
 	_move_creeps()
 	if phase == Phase.LOST:
 		return
+	_reveal()
 	_move_projectiles()
 	_fire_towers()
 	_check_wave_end()
@@ -311,12 +338,7 @@ func _spawn() -> void:
 	var entry: Dictionary = _queue[0]
 	var g: Dictionary = entry.group
 	var kind := str(g.get("creep", "normal"))
-	var def := _creep_def(kind)
-	var speed := float(g.get("speed", def.get("speed", 1.7)))
-	var creep := Creep.new(_next_creep_id, float(g.hp), speed, int(g.bounty), grid.spawn, kind)
-	creep.armor = int(g.get("armor", def.get("armor", 0)))
-	creep.flying = bool(def.get("flying", false))
-	_next_creep_id += 1
+	var creep := new_creep(kind, float(g.hp), int(g.bounty), g, grid.spawn)
 	if creep.flying:
 		creep.set_path([grid.goal])
 	else:
@@ -327,6 +349,107 @@ func _spawn() -> void:
 		_queue.remove_at(0)
 	_spawn_timer += float(g.interval)
 	creep_spawned.emit(creep)
+
+
+## A creep of a kind from the creep data at a cell. `g` (a wave group, or the
+## parameters of a split or summon) may set speed, armor, model and abilities.
+func new_creep(kind: String, hp: float, bounty: int, g: Dictionary, cell: Vector2i) -> Creep:
+	var def := _creep_def(kind)
+	var speed := float(g.get("speed", def.get("speed", 1.7)))
+	var creep := Creep.new(_next_creep_id, hp, speed, bounty, cell, kind)
+	_next_creep_id += 1
+	creep.armor = int(g.get("armor", def.get("armor", 0)))
+	creep.flying = bool(def.get("flying", false))
+	creep.boss = bool(def.get("boss", false))
+	creep.model = str(g.get("model", ""))
+	creep.setup_abilities(merge_abilities(def.get("abilities", {}), g.get("abilities", {})))
+	return creep
+
+
+## Abilities of a kind with a group's overrides: parameters are merged per
+## ability, and false or null removes one.
+static func merge_abilities(base: Dictionary, over: Dictionary) -> Dictionary:
+	var out := base.duplicate(true)
+	for key: String in over:
+		var v: Variant = over[key]
+		if v == null or (v is bool and not v):
+			out.erase(key)
+		elif v is Dictionary and out.get(key) is Dictionary:
+			(out[key] as Dictionary).merge((v as Dictionary).duplicate(true), true)
+		else:
+			out[key] = v
+	return out
+
+
+## Heal pulses and summons, on each creep's own timer.
+func _use_abilities() -> void:
+	for creep in creeps.duplicate():
+		if not creep.alive():
+			continue
+		if creep.ability_ready("heal", DT):
+			_heal(creep, creep.abilities.heal)
+		if creep.ability_ready("summon", DT):
+			var p: Dictionary = creep.abilities.summon
+			# A summoner stops at "max" summons in total, so creeps cannot pile up.
+			if creep.summoned < int(p.get("max", 8)):
+				var children := _spawn_children(creep, p)
+				creep.summoned += children.size()
+				creep_summoned.emit(creep, children)
+
+
+## Heals every creep within "radius" of the healer (itself too) by "amount" plus
+## "percent" of its max hp, never above max hp.
+func _heal(healer: Creep, p: Dictionary) -> void:
+	var radius := float(p.get("radius", 2.0))
+	var total := 0.0
+	for c in creeps:
+		if c.alive() and c.pos.distance_to(healer.pos) <= radius:
+			total += c.heal(Creep.scaled(p, c.max_hp))
+	if total > 0.0:
+		creep_healed.emit(healer, radius)
+
+
+## Small creeps where `parent` is ("split" when it dies, "summon" while it lives).
+## Parameters: count, creep (kind), hp (+ hp_percent of the parent's max hp),
+## speed, bounty and model (default: the parent's). They walk on along the
+## parent's path from its current cell, a little behind each other.
+func _spawn_children(parent: Creep, p: Dictionary) -> Array[Creep]:
+	var kind := str(p.get("creep", "spawnling"))
+	var hp := maxf(float(p.get("hp", 0.0)) + float(p.get("hp_percent", 0.0)) * parent.max_hp, 1.0)
+	var params := p.duplicate()
+	params.model = str(p.get("model", parent.model))
+	# Children never split or summon themselves: no endless chains.
+	var child_abilities: Dictionary = p.get("abilities", {}).duplicate(true)
+	child_abilities.merge({"split": false, "summon": false}, true)
+	params.abilities = child_abilities
+	var out: Array[Creep] = []
+	for i in int(p.get("count", 2)):
+		var c := new_creep(kind, hp, int(p.get("bounty", 1)), params, parent.prev_cell)
+		c.flying = c.flying or parent.flying  # flyers from the data stay flyers
+		c.path = parent.path.duplicate()
+		c.next_index = parent.next_index
+		c.pos = parent.pos.move_toward(Grid.center(parent.prev_cell), 0.2 * i)
+		c.prev_pos = c.pos
+		creeps.append(c)
+		creep_spawned.emit(c)
+		out.append(c)
+	return out
+
+
+## Marks invisible creeps that a revealing tower has in range.
+func _reveal() -> void:
+	var revealers: Array[Tower] = []
+	for cell: Vector2i in towers:
+		if towers[cell].reveals():
+			revealers.append(towers[cell])
+	for c in creeps:
+		if not c.invisible:
+			continue
+		c.revealed = false
+		for tower in revealers:
+			if tower.in_range(c):
+				c.revealed = true
+				break
 
 
 func _tick_effects() -> void:
@@ -435,7 +558,13 @@ func _chain(s: Dictionary, damage: int, first: Creep, can_hit: Callable) -> void
 		var best: Creep = null
 		var best_d := float(s.get("chain_range", 2.0))
 		for c in creeps:
-			if c in done or not c.alive() or not can_hit.call(c):
+			if (
+				c in done
+				or not c.alive()
+				or not c.targetable()
+				or c.invulnerable_time > 0.0
+				or not can_hit.call(c)
+			):
 				continue
 			var d := c.pos.distance_to(from.pos)
 			if d <= best_d:
@@ -449,13 +578,23 @@ func _chain(s: Dictionary, damage: int, first: Creep, can_hit: Callable) -> void
 		from = best
 
 
-## Removes dead creeps and pays their bounty.
+## Removes dead creeps and pays their bounty; splitters leave their children.
+## Also reports the boss phases and enrages the last damage started.
 func _reap() -> void:
 	for creep in creeps.duplicate():
 		if not creep.alive():
 			creeps.erase(creep)
 			_add_gold(creep.bounty)
 			creep_killed.emit(creep)
+			if creep.abilities.has("split"):
+				creep_split.emit(creep, _spawn_children(creep, creep.abilities.split))
+			continue
+		if creep.phase_started:
+			creep.phase_started = false
+			boss_phase.emit(creep, creep.phase)
+		if creep.enrage_started:
+			creep.enrage_started = false
+			boss_enraged.emit(creep)
 
 
 func _check_wave_end() -> void:

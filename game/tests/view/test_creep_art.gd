@@ -12,6 +12,26 @@ func test_every_wave_group_names_a_known_model() -> void:
 			t.check(CreepArt.MODELS.has(id), "wave %d: unknown model '%s'" % [i + 1, id])
 
 
+func test_children_of_splits_and_summons_name_known_models() -> void:
+	var config := Game.default_config()
+	for kind: String in config.creeps:
+		var abilities: Dictionary = config.creeps[kind].get("abilities", {})
+		for a: String in ["split", "summon"]:
+			if abilities.has(a) and abilities[a].has("model"):
+				var id := str(abilities[a].model)
+				t.check(CreepArt.MODELS.has(id), "%s %s: unknown model '%s'" % [kind, a, id])
+	for kind: String in config.creeps:
+		t.check(CreepArt.KIND_MODELS.has(kind), "%s has a default model" % kind)
+
+
+func test_model_of_prefers_the_creeps_own_model() -> void:
+	var waves: Array[Dictionary] = [{"groups": [{"creep": "normal", "model": "trex"}]}]
+	var c := Creep.new(1, 10.0, 1.0, 1, Vector2i.ZERO)
+	t.eq(CreepArt.model_of(c, waves, 1), "trex", "from the wave")
+	c.model = "slime"
+	t.eq(CreepArt.model_of(c, waves, 1), "slime", "its own")
+
+
 func test_model_for_uses_the_latest_wave_with_the_kind() -> void:
 	var waves: Array[Dictionary] = [
 		{"groups": [{"creep": "fast", "model": "spider"}]},
