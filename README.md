@@ -18,7 +18,7 @@ game/            Godot-prosjektet
   tests/         headless tester (scripts/test.sh)
   tools/         skjermbilde, demo-scener og balanse-bot (ikke med i eksporten)
 ios/             eksportert Xcode-prosjekt og ci_scripts for Xcode Cloud
-scripts/         godot.sh (pinnet versjon), export-ios.sh, export-web.sh, screenshot.sh, make_sfx.py (lyd)
+scripts/         godot.sh (pinnet versjon), export-ios.sh, export-web.sh, screenshot.sh, make_sfx.py (lyd), asc_builds.py og asc_whats_new.py (TestFlight)
 .godot-version   Godot-versjonen som brukes overalt
 ```
 
