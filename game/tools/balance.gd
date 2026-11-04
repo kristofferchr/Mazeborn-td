@@ -1,27 +1,35 @@
 extends SceneTree
 ## Lets the bot (tools/bot.gd) play a round on one map or on every map and
 ## prints each wave. For balancing.
-## Usage: scripts/godot.sh --headless --path game -s res://tools/balance.gd [-- map|all [seed]]
+## Usage: scripts/godot.sh --headless --path game -s res://tools/balance.gd
+##   [-- map|all [seed [mode]]]
+## Modes: "classic" (the bot sends each wave early), "wait" (classic, the bot
+## lets the countdown run out) and "endless" (until the bot loses, at most
+## MAX_ENDLESS waves).
+
+const MAX_ENDLESS := 150
 
 
 func _initialize() -> void:
 	var args := OS.get_cmdline_user_args()
 	var which := args[0] if args.size() > 0 else "all"
 	var seed_value := int(args[1]) if args.size() > 1 else 3
+	var mode := args[2] if args.size() > 2 else "classic"
 	var ids := Maps.ids()
 	if which != "all":
 		ids = [which] as Array[String]
 	var summary: Array[String] = []
 	for id in ids:
-		summary.append(_play(id, seed_value))
+		summary.append(_play(id, seed_value, mode))
 	print("\n".join(summary))
 	quit()
 
 
-func _play(id: String, seed_value: int) -> String:
-	var g := Game.create_map(id, seed_value)
-	print("== %s (%s)" % [g.map.get("name", id), id])
-	var bot := Bot.new(g)
+func _play(id: String, seed_value: int, mode: String) -> String:
+	var endless := mode == "endless"
+	var g := Game.create_map(id, seed_value, {"mode": "endless" if endless else "classic"})
+	print("== %s (%s) %s" % [g.map.get("name", id), id, mode])
+	var bot := Bot.new(g, mode != "wait")
 	var leaked_kinds := {}  # kind -> count in the wave just played
 	var count_leak := func(c: Creep) -> void: leaked_kinds[c.kind] = 1 + leaked_kinds.get(c.kind, 0)
 	g.creep_leaked.connect(count_leak)
@@ -32,7 +40,7 @@ func _play(id: String, seed_value: int) -> String:
 					"wave %2d %-26s lives %2d leaked %2d gold %3d towers %2d upgrades %2d path %s %s"
 					% [
 						g.wave,
-						", ".join(g.wave_tags(g.waves[g.wave - 1])),
+						", ".join(g.wave_tags(g.wave_data(g.wave))),
 						g.lives,
 						b.leaked_by_wave.get(g.wave, 0),
 						g.gold,
@@ -43,11 +51,15 @@ func _play(id: String, seed_value: int) -> String:
 					]
 				)
 			)
-			leaked_kinds.clear()
+			leaked_kinds.clear(),
+		MAX_ENDLESS
 	)
 	g.creep_leaked.disconnect(count_leak)
 	print(_board(g))
-	var result := "%-16s %-4s lives %2d" % [id, Game.Phase.keys()[g.phase], g.lives]
+	var result := (
+		"%-16s %-7s %-4s wave %3d lives %2d early gold %3d"
+		% [id, mode, Game.Phase.keys()[g.phase], g.wave, g.lives, bot.early_gold]
+	)
 	print("result: ", result)
 	return result
 
