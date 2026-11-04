@@ -1,8 +1,10 @@
 class_name Hud
 extends CanvasLayer
-## Heads-up display: resources, wave controls, the next-wave card, the build
-## menu and tower panel, health bars, floating gold, the mute button and the
-## end screen. Damage numbers, wave banners and the leak glow: HudFx.
+## Heads-up display: resources, wave controls (the start button with the
+## countdown ring), the next-wave card (tap it for the overview of every wave
+## left), the build menu and tower panel, health bars, floating gold, the mute
+## button and the end screen. Damage numbers, wave banners and the leak glow:
+## HudFx.
 ## Reads the game state; user actions are sent out as signals. Look: UiStyle.
 
 signal start_wave_pressed
@@ -45,10 +47,13 @@ const CREEP_DOTS := {
 const SHIELD_BAR := Color(0.4, 0.65, 1.0)
 const INVULNERABLE_BAR := Color(1.0, 0.88, 0.45)
 const THUMB := 112  # tower thumbnail size in pixels
+const OVERVIEW_WIDTH := 500.0
+const PULSE_SECONDS := 3  # the start button pulses in the last seconds
 
 var game: Game
 var board: BoardView
 var camera: Camera3D
+var overview_open := false  # the wave overview replaces the next-wave card
 
 var _root: Control
 var _top: PanelContainer
@@ -59,8 +64,15 @@ var _speed: Button
 var _mute: Button
 var _mute_icon: UiIcon
 var _start: Button
+var _start_box: HBoxContainer  # countdown: ring and two lines of text
+var _ring: Control
+var _ring_label: Label
+var _start_title: Label
+var _start_sub: Label
+var _start_tween: Tween
 var _next: PanelContainer
 var _next_title: Label
+var _overview: WaveOverview
 var _next_rows: VBoxContainer
 var _next_tags: HBoxContainer
 var _next_shown := -2  # wave shown in the next-wave card
@@ -98,6 +110,7 @@ func setup(p_game: Game, p_board: BoardView, p_camera: Camera3D) -> void:
 	game.game_over.connect(_on_game_over)
 	game.creep_killed.connect(_on_creep_killed)
 	game.gold_bonus.connect(_on_gold_bonus)
+	game.countdown_tick.connect(_on_countdown_tick)
 	get_viewport().size_changed.connect(_layout)
 	_layout()
 
@@ -168,15 +181,11 @@ func _process(_delta: float) -> void:
 		return
 	_gold.text = str(game.gold)
 	_lives.text = str(game.lives)
-	_wave.text = "%d/%d" % [game.wave, game.waves.size()]
-	_start.disabled = not game.can_start_wave()
-	if game.can_send_early():
-		_start.text = "Send neste  +%d" % game.early_bonus
-	elif game.phase == Game.Phase.WAVE:
-		_start.text = "Bølge pågår"
-	else:
-		_start.text = "Start bølge"
+	_wave.text = "%d/%s" % [game.wave, "∞" if game.endless else str(game.waves.size())]
+	_update_start()
 	_update_next_wave()
+	if overview_open:
+		_overview.refresh()
 	_bars.queue_redraw()
 	# Thumbnails render for a few frames, then their viewports stop updating.
 	for view: SubViewport in _thumb_life.keys():
@@ -184,6 +193,55 @@ func _process(_delta: float) -> void:
 		if _thumb_life[view] <= 0:
 			view.render_target_update_mode = SubViewport.UPDATE_DISABLED
 			_thumb_life.erase(view)
+
+
+## The start button: "Start bølge" before the first wave, the countdown ring
+## with "Send nå +N" between waves, and "Send neste +N" once a running wave
+## has spawned.
+func _update_start() -> void:
+	_start.disabled = not game.can_start_wave()
+	var counting := game.countdown_active()
+	_start_box.visible = counting
+	if counting:
+		_start.text = ""
+		var left := ceili(game.countdown() - 0.0001)
+		_ring_label.text = str(left)
+		_start_title.text = "Send nå  +%d" % game.early_gold()
+		_start_sub.text = "Neste om %d s" % left
+		_ring.set_meta("fraction", game.countdown_fraction())
+		_ring.set_meta("urgent", left <= PULSE_SECONDS)
+		_ring.queue_redraw()
+	elif game.can_send_early():
+		_start.text = "Send neste  +%d" % game.early_gold()
+	elif game.phase == Game.Phase.WAVE:
+		_start.text = "Bølge pågår"
+	else:
+		_start.text = "Start bølge"
+
+
+## The ring around the seconds left: a faint full circle and the share left.
+func _draw_ring() -> void:
+	var c := _ring.size / 2.0
+	var r := minf(c.x, c.y) - 4.0
+	var urgent: bool = _ring.get_meta("urgent", false)
+	var col := Color(0.55, 0.08, 0.05) if urgent else UiStyle.ON_ACCENT
+	_ring.draw_circle(c, r + 3.0, Color(1, 1, 1, 0.22))
+	_ring.draw_arc(c, r, 0.0, TAU, 48, Color(col, 0.18), 6.0, true)
+	var f: float = _ring.get_meta("fraction", 0.0)
+	if f > 0.0:
+		_ring.draw_arc(c, r, -PI / 2.0, -PI / 2.0 + TAU * f, 48, col, 6.0, true)
+
+
+## The last seconds of the countdown: the start button pulses.
+func _on_countdown_tick(seconds_left: int) -> void:
+	if seconds_left < 1 or seconds_left > PULSE_SECONDS:
+		return
+	_start.pivot_offset = _start.size / 2.0
+	if _start_tween:
+		_start_tween.kill()
+	_start.scale = Vector2.ONE * 1.07
+	_start_tween = _start.create_tween()
+	_start_tween.tween_property(_start, "scale", Vector2.ONE, 0.35).set_ease(Tween.EASE_OUT)
 
 
 ## Cards for the upgrades of the selected tower: rebuilt when the tower or its
@@ -304,40 +362,41 @@ func _update_next_wave() -> void:
 		return
 	_next_shown = shown
 	var w := game.next_wave()
-	_next.visible = not w.is_empty() and not game.is_over()
-	if not _next.visible:
+	if w.is_empty() or game.is_over():
+		_next.visible = false
 		return
+	_next.visible = not overview_open
 	_next_title.text = "NESTE  ·  BØLGE %d" % (game.wave + 1)
 	for child in _next_rows.get_children() + _next_tags.get_children():
 		child.get_parent().remove_child(child)
 		child.queue_free()
 	for g in Game.wave_groups(w):
-		_next_rows.add_child(_next_row(g))
+		_next_rows.add_child(WaveOverview.group_row(game, g))
 	var tags := game.wave_tags(w)
 	_next_tags.visible = not tags.is_empty()
 	for tag in tags:
-		_next_tags.add_child(UiStyle.chip(tag, TAG_COLORS.get(tag, Color(0.4, 0.4, 0.45))))
+		_next_tags.add_child(WaveOverview.tag_chip(tag))
 	_layout.call_deferred()
 
 
-func _next_row(g: Dictionary) -> HBoxContainer:
-	var kind := str(g.get("creep", "normal"))
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
-	var dot := UiIcon.make("dot", CREEP_DOTS.get(kind, UiStyle.MUTED), 14)
-	dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	row.add_child(dot)
-	var count := int(g.count)
-	var creep_name := str(game.creep_defs.get(kind, {}).get("name", kind)).to_lower()
-	if kind == "normal":
-		creep_name = "fiende" if count == 1 else "fiender"
-	row.add_child(UiStyle.label("%d × %s" % [count, creep_name], 24, UiStyle.TEXT, true))
-	var spacer := Control.new()
-	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	spacer.custom_minimum_size = Vector2(16, 0)
-	row.add_child(spacer)
-	row.add_child(UiStyle.label("%d HP" % roundi(game.creep_hp(g)), 22, UiStyle.MUTED))
-	return row
+## Opens or closes the overview of every wave left (the next-wave card is
+## hidden while it is open).
+func toggle_overview() -> void:
+	overview_open = not overview_open and not game.is_over()
+	_overview.visible = overview_open
+	if overview_open:
+		_overview.refresh(true)
+	_next_shown = -2
+	_update_next_wave()
+	_layout.call_deferred()
+
+
+## A tap (a mouse press, also one made from a finger) toggles the overview.
+func _on_toggle_input(event: InputEvent) -> void:
+	var mb := event as InputEventMouseButton
+	if mb and mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT:
+		toggle_overview()
+		_next.accept_event()
 
 
 # --- Building the UI ------------------------------------------------------------
@@ -390,32 +449,86 @@ func _build() -> void:
 	_root.add_child(_mute)
 
 	_start = _button("Start bølge", "primary", func() -> void: start_wave_pressed.emit())
-	_start.custom_minimum_size = Vector2(300, 92)
+	_start.custom_minimum_size = Vector2(340, 92)
 	_start.add_theme_font_size_override("font_size", 32)
 	_root.add_child(_start)
+	_build_countdown()
 
 	_build_next_card()
+	_build_overview()
 	_build_panel()
 	_build_end_screen()
-	_ui = [_top, _speed, _mute, _start, _panel]
+	_ui = [_top, _speed, _mute, _start, _panel, _next, _overview]
+
+
+## Countdown content of the start button: a ring with the seconds left, then
+## "Send nå +N" over "Neste om N s".
+func _build_countdown() -> void:
+	_start_box = HBoxContainer.new()
+	_start_box.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_start_box.offset_left = 16
+	_start_box.offset_right = -12
+	_start_box.add_theme_constant_override("separation", 14)
+	_start_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_start_box.visible = false
+	_start.add_child(_start_box)
+	_ring = Control.new()
+	_ring.custom_minimum_size = Vector2(64, 64)
+	_ring.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_ring.draw.connect(_draw_ring)
+	_start_box.add_child(_ring)
+	_ring_label = UiStyle.label("", 26, UiStyle.ON_ACCENT, true)
+	_ring_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_ring_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_ring_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_ring.add_child(_ring_label)
+	var lines := VBoxContainer.new()
+	lines.alignment = BoxContainer.ALIGNMENT_CENTER
+	lines.add_theme_constant_override("separation", -2)
+	lines.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lines.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_start_box.add_child(lines)
+	_start_title = UiStyle.label("", 30, UiStyle.ON_ACCENT, true)
+	lines.add_child(_start_title)
+	_start_sub = UiStyle.label("", 19, Color(UiStyle.ON_ACCENT, 0.72), true)
+	lines.add_child(_start_sub)
 
 
 func _build_next_card() -> void:
 	_next = PanelContainer.new()
 	_next.add_theme_stylebox_override("panel", UiStyle.panel())
-	_next.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_next.mouse_filter = Control.MOUSE_FILTER_STOP
+	_next.gui_input.connect(_on_toggle_input)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 6)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_next.add_child(box)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 16)
+	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(head)
 	_next_title = UiStyle.label("", 17, UiStyle.MUTED, true)
-	box.add_child(_next_title)
+	_next_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(_next_title)
+	head.add_child(UiStyle.label("Alle bølger  ▸", 17, UiStyle.ACCENT, true))
 	_next_rows = VBoxContainer.new()
 	_next_rows.add_theme_constant_override("separation", 2)
 	box.add_child(_next_rows)
 	_next_tags = HBoxContainer.new()
 	_next_tags.add_theme_constant_override("separation", 8)
 	box.add_child(_next_tags)
+	for c: Control in [_next_rows, _next_tags]:
+		c.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(_next)
+
+
+func _build_overview() -> void:
+	_overview = WaveOverview.new()
+	_overview.setup(game)
+	_overview.visible = false
+	_overview.close_pressed.connect(toggle_overview)
+	_root.add_child(_overview)
 
 
 func _build_panel() -> void:
@@ -663,6 +776,10 @@ func _layout() -> void:
 	_next.reset_size()
 	_next.size.x = maxf(_next.size.x, _start.size.x)
 	_next.position = Vector2(right - _next.size.x, _start.position.y - 14.0 - _next.size.y)
+	var list_top := _fx.banner_top
+	var list_bottom := _start.position.y - 14.0
+	_overview.position = Vector2(right - OVERVIEW_WIDTH, list_top)
+	_overview.size = Vector2(OVERVIEW_WIDTH, maxf(list_bottom - list_top, 200.0))
 	_panel.reset_size()
 	_panel.position = Vector2(left, bottom - _panel.size.y)
 
@@ -745,12 +862,21 @@ func _float_text(text: String, at: Vector2, size: int, centered: bool) -> void:
 func _on_game_over(won: bool) -> void:
 	_panel.visible = false
 	_next.visible = false
+	if overview_open:
+		toggle_overview()
 	_end.visible = true
 	_end_stats.text = (
 		"%s   ·   Bølge %d av %d   ·   %d liv   ·   %d gull"
 		% [game.map.get("name", "Kart"), game.wave, game.waves.size(), game.lives, game.gold]
 	)
-	if won:
+	if game.endless:
+		_end_stats.text = (
+			"%s   ·   Endeløs   ·   %d gull" % [game.map.get("name", "Kart"), game.gold]
+		)
+		_end_title.text = "Bølge %d" % game.score()
+		_end_title.add_theme_color_override("font_color", UiStyle.ACCENT)
+		_end_text.text = "Endeløs: mazen holdt til bølge %d." % game.score()
+	elif won:
 		_end_title.text = "Seier!"
 		_end_title.add_theme_color_override("font_color", UiStyle.ACCENT)
 		_end_text.text = "Mazen holdt gjennom alle bølgene."

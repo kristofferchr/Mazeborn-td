@@ -1,8 +1,9 @@
 class_name Round
 extends Node3D
 ## One round on a map: runs the core Game with a fixed time step and wires the
-## 3D view, the camera and the HUD to it. Set map_id before adding it to the
-## tree (default: the default map, so the scene also runs on its own).
+## 3D view, the camera and the HUD to it. Set map_id (and options, see Game)
+## before adding it to the tree (default: the default map, so the scene also
+## runs on its own).
 ## Touch: tap a cell to preview, tap again (or "Bygg") to build the kind chosen
 ## in the menu, tap a tower to upgrade or sell; drag to pan, pinch to zoom.
 
@@ -13,6 +14,7 @@ const TAP_SLOP := 14.0  # pixels a finger may move and still count as a tap
 const NO_CELL := Vector2i(-1, -1)
 
 var map_id := Maps.DEFAULT
+var options: Dictionary = {}  # round options for Game ("mode": "endless" ...)
 var game: Game
 var board: BoardView
 var camera: CameraRig
@@ -28,7 +30,7 @@ var _tap_valid := false
 
 
 func _ready() -> void:
-	game = Game.create_map(map_id, int(Time.get_unix_time_from_system()))
+	game = Game.create_map(map_id, int(Time.get_unix_time_from_system()), options)
 	_build_environment()
 
 	board = BoardView.new()

@@ -240,7 +240,7 @@ func show_banner(title: String, sub: String, color: Color) -> void:
 
 func _on_wave_started(number: int) -> void:
 	_bonus = 0
-	var w: Dictionary = game.waves[number - 1]
+	var w := game.wave_data(number)
 	var tags := game.wave_tags(w)
 	var color := UiStyle.ACCENT
 	if tags.size() > 0:
@@ -249,8 +249,10 @@ func _on_wave_started(number: int) -> void:
 		color = Hud.TAG_COLORS.Boss
 	var count := game.wave_count(w)
 	var sub := "%d %s" % [count, "fiende" if count == 1 else "fiender"]
-	if number == game.waves.size():
+	if game.is_final_wave(number):
 		sub += "  ·  siste bølge!"
+	elif game.endless and number == game.waves.size() + 1:
+		sub += "  ·  nå begynner det endeløse"
 	show_banner(wave_title(number, tags), sub, color)
 
 
@@ -260,7 +262,13 @@ func _on_gold_bonus(amount: int, reason: String) -> void:
 
 
 func _on_wave_cleared(number: int) -> void:
-	if number >= game.waves.size() or game.is_over():
+	if game.is_final_wave(number) or game.is_over():
 		return  # the end screen takes over
-	var sub := "+%d gull i bonus" % _bonus if _bonus > 0 else ""
+	var parts: Array[String] = []
+	if _bonus > 0:
+		parts.append("+%d gull i bonus" % _bonus)
+	var wait := game.build_time_for(number + 1)
+	if wait > 0.0 and game.has_wave(number + 1):
+		parts.append("neste om %d s" % roundi(wait))
+	var sub := "  ·  ".join(parts)
 	show_banner("Bølge %d klart" % number, sub, UiStyle.GOOD)

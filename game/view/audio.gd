@@ -54,6 +54,7 @@ const EVENTS := {
 	"victory": "victory",
 	"defeat": "defeat",
 	"click": "click",
+	"tick": "click",
 }
 const MUSIC := {"calm": "music_calm", "battle": "music_battle"}
 ## Per sound: [volume dB, max playing at once, min seconds between starts,
@@ -162,6 +163,7 @@ func setup(p_game: Game) -> void:
 	_game.creep_leaked.connect(func(_c: Creep) -> void: play_event("leak"))
 	_game.wave_started.connect(_on_wave_started)
 	_game.wave_cleared.connect(_on_wave_cleared)
+	_game.countdown_tick.connect(_on_countdown_tick)
 	_game.gold_bonus.connect(_on_gold_bonus)
 	_game.game_over.connect(_on_game_over)
 
@@ -310,9 +312,15 @@ func _on_wave_started(_number: int) -> void:
 
 
 func _on_wave_cleared(number: int) -> void:
-	if number < _game.waves.size():
+	if not _game.is_final_wave(number):
 		play_event("wave_cleared")  # the last one gets the victory fanfare
 	_set_battle(false, 4.0)
+
+
+## A tick in the last seconds of the countdown, higher towards the start.
+func _on_countdown_tick(seconds_left: int) -> void:
+	if seconds_left >= 1 and seconds_left <= 3:
+		play_event("tick", 1.9 - 0.15 * seconds_left, 5.0)
 
 
 func _on_gold_bonus(_amount: int, reason: String) -> void:

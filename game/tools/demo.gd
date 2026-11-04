@@ -1,14 +1,21 @@
 extends Node
 ## Screenshot scene: the real game with a mixed maze, mid-way through wave 6.
 ## Skips the map select and plays the default map, or the map in env DEMO_MAP.
-## Usage: [DEMO_MAP=klofta] scripts/screenshot.sh out.png res://tools/demo.tscn 30 2532x1170
+## Env DEMO_STATE picks another moment: "countdown" (between waves 5 and 6,
+## the start button counting down), "overview" (the same with the wave
+## overview open) or "endless" (endless mode, mid-way through boss wave 20).
+## Usage: [DEMO_MAP=klofta] [DEMO_STATE=overview] \
+##   scripts/screenshot.sh out.png res://tools/demo.tscn 30 2532x1170
 
 
 func _ready() -> void:
+	var state := OS.get_environment("DEMO_STATE")
 	var main: Node = load("res://round.tscn").instantiate()
 	var map_id := OS.get_environment("DEMO_MAP")
 	if map_id != "":
 		main.map_id = map_id
+	if state == "endless":
+		main.options = {"mode": "endless"}
 	add_child(main)
 	var game: Game = main.game
 	game.rng.seed = 1
@@ -38,9 +45,21 @@ func _ready() -> void:
 	for i in 5:
 		game.start_wave()
 		game.run_wave()
+	main.speed = 0.0  # frozen for the screenshot
+	if state == "countdown" or state == "overview":
+		for i in roundi(3.0 / Game.DT):  # a few seconds into the countdown
+			game.step()
+		if state == "overview":
+			main.hud.toggle_overview()
+		return
+	if state == "endless":
+		game.wave = 19  # skip ahead: the next wave is the boss of wave 20
+		game.lives = 14
 	game.start_wave()
+	if state == "endless":
+		game.simulate(8.0)  # the boss walks in behind its escort
+		return
 	game.simulate(9.0)
-	main.speed = 0.0  # freeze mid-wave for the screenshot
 	# Show the build preview on a free cell near the middle.
 	var cell := Vector2i(9, 4)
 	while cell.x < game.grid.size.x - 1 and not game.grid.can_build(cell):

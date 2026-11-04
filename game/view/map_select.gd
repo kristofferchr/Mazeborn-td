@@ -1,18 +1,21 @@
 class_name MapSelect
 extends Control
 ## Map select before a round: a card per map (schematic, name, description and
-## chips) and a "Spill" button for the chosen one. Look: UiStyle.
+## chips), an "Endeløs" toggle (the endless mode) and a "Spill" button for the
+## chosen one. Look: UiStyle.
 
-signal play_pressed(map_id: String)
+signal play_pressed(map_id: String, options: Dictionary)
 
 const MARGIN := 40.0
 const GAP := 22
 
 var selected := Maps.DEFAULT
+var endless := false  # play the endless mode
 
 var _cards: Dictionary = {}  # map id -> Button
 var _grid: GridContainer
 var _play: Button
+var _endless: Button
 var _title: Label
 var _subtitle: Label
 var _back: Texture2D
@@ -49,8 +52,30 @@ func _build() -> void:
 	_play.custom_minimum_size = Vector2(320, 96)
 	_play.add_theme_font_size_override("font_size", 38)
 	UiStyle.style_button(_play, "primary")
-	_play.pressed.connect(func() -> void: play_pressed.emit(selected))
+	_play.pressed.connect(func() -> void: play_pressed.emit(selected, options()))
 	add_child(_play)
+
+	_endless = Button.new()
+	_endless.toggle_mode = true
+	_endless.focus_mode = Control.FOCUS_NONE
+	_endless.custom_minimum_size = Vector2(0, 96)
+	_endless.add_theme_font_size_override("font_size", 28)
+	var off := UiStyle.button_box("secondary", "normal")
+	off.set_corner_radius_all(99)
+	off.content_margin_left = 30
+	off.content_margin_right = 30
+	var on := off.duplicate() as StyleBoxFlat
+	on.bg_color = Color(0.36, 0.2, 0.5, 0.97)
+	on.border_color = Color(0.75, 0.55, 1.0)
+	on.set_border_width_all(3)
+	for state: String in ["normal", "hover", "focus"]:
+		_endless.add_theme_stylebox_override(state, off)
+	for state: String in ["pressed", "hover_pressed"]:
+		_endless.add_theme_stylebox_override(state, on)
+	_endless.button_pressed = endless
+	_endless.toggled.connect(_set_endless)
+	add_child(_endless)
+	_set_endless(endless)
 
 
 func _card(m: Dictionary) -> Button:
@@ -108,6 +133,19 @@ func _card(m: Dictionary) -> Button:
 	return card
 
 
+## Round options for Game: {"mode": "endless"} when the toggle is on.
+func options() -> Dictionary:
+	return {"mode": "endless"} if endless else {}
+
+
+func _set_endless(on: bool) -> void:
+	endless = on
+	_endless.text = "∞  Endeløs: på" if on else "∞  Endeløs: av"
+	_endless.reset_size()
+	if _play:
+		_place()
+
+
 func _select(id: String) -> void:
 	selected = id
 	for key: String in _cards:
@@ -156,6 +194,9 @@ func _place() -> void:
 	_play.position = Vector2(
 		area.end.x - _play.size.x, minf(grid_top + _grid.size.y + 26.0, area.end.y - _play.size.y)
 	)
+	_endless.size = Vector2.ZERO
+	_endless.reset_size()
+	_endless.position = Vector2(_play.position.x - 18.0 - _endless.size.x, _play.position.y)
 	queue_redraw()
 
 
