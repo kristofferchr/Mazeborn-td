@@ -72,6 +72,7 @@ const PLATEAU := 0.6  # height of the playfield above the land around it
 const SHADERS := "res://view/shaders/"
 
 var game: Game
+var effects: Effects  # particle bursts
 var _towers: Dictionary = {}  # Vector2i -> Node3D
 var _creeps: Dictionary = {}  # creep id -> Node3D
 var _creep_models: Dictionary = {}  # creep id -> CreepArt id
@@ -136,6 +137,9 @@ func setup(p_game: Game) -> void:
 	game.creep_spawned.connect(_on_creep_spawned)
 	game.creep_killed.connect(_on_creep_removed.bind(true))
 	game.creep_leaked.connect(_on_creep_removed.bind(false))
+	effects = Effects.new()
+	add_child(effects)
+	effects.setup(game, self)
 	_draw_path()
 
 
@@ -658,12 +662,14 @@ func _on_creep_removed(creep: Creep, killed: bool) -> void:
 	var node: Node3D = _creeps.get(creep.id)
 	var model_id: String = _creep_models.get(creep.id, CreepArt.DEFAULT)
 	_creeps.erase(creep.id)
-	_creep_models.erase(creep.id)
-	if node == null:
+	if node == null or not killed:
+		_creep_models.erase(creep.id)
+		if node:
+			node.queue_free()
 		return
-	if not killed:
-		node.queue_free()
-		return
+	# Keep the model id while the body is shown, so effects connected after
+	# this handler (death puff, last damage number) still find its height.
+	node.tree_exiting.connect(func() -> void: _creep_models.erase(creep.id))
 	for m: MeshInstance3D in node.find_children("*", "MeshInstance3D", true, false):
 		m.material_overlay = null
 	var tw := create_tween()
