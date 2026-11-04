@@ -121,6 +121,8 @@ func pick_targets(creeps: Array[Creep], n: int) -> Array[Creep]:
 			score = c.remaining()
 		else:
 			score = Grid.center(cell).distance_to(c.pos)
+		if c.invulnerable_time > 0.0:
+			score += 1000.0  # shoot an invulnerable boss only when nothing else is in range
 		scored.append([score, c.id, c])
 	scored.sort()  # by score, then id: deterministic
 	var out: Array[Creep] = []

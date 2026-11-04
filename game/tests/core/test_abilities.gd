@@ -293,3 +293,72 @@ func test_default_data_uses_abilities_and_bosses() -> void:
 	var arrow: Dictionary = g.tower_defs.arrow.nodes
 	t.check(arrow.arrow3.get("reveal", false), "sharpshooter reveals")
 	t.check(g.tower_defs.elemental.nodes.lightning.get("reveal", false), "lightning reveals")
+
+
+func test_split_children_never_split_again() -> void:
+	var g := _game_with({"loop": {"abilities": {"split": {"count": 2, "creep": "loop", "hp": 5}}}})
+	var c := _creep(g, "loop", Vector2i(3, 1))
+	c.hp = 0.0
+	g.step()
+	t.eq(g.creeps.size(), 2, "two children")
+	for child in g.creeps.duplicate():
+		child.hp = 0.0
+	g.step()
+	t.eq(g.creeps.size(), 0, "the children do not split")
+
+
+func test_children_keep_flying_from_their_own_kind() -> void:
+	var g := _game_with(
+		{
+			"caller":
+			{"abilities": {"summon": {"interval": 0.1, "count": 1, "creep": "flying", "hp": 5}}}
+		}
+	)
+	_creep(g, "caller", Vector2i(2, 1))
+	_steps(g, 5)
+	var flyers := g.creeps.filter(func(c: Creep) -> bool: return c.kind == "flying")
+	t.check(not flyers.is_empty(), "summoned a flyer")
+	t.check(flyers.all(func(c: Creep) -> bool: return c.flying), "summons of a flying kind fly")
+
+
+func test_summons_stop_at_max() -> void:
+	var g := _game_with(
+		{"caller": {"abilities": {"summon": {"interval": 0.1, "count": 2, "max": 4, "hp": 5}}}}
+	)
+	var caller := _creep(g, "caller", Vector2i(2, 1))
+	_steps(g, 60)
+	t.eq(caller.summoned, 4, "summoned exactly max")
+
+
+func test_group_that_removes_an_ability_drops_its_tag() -> void:
+	var g := _game_with({"guard": {"tag": "Skjold", "abilities": {"shield": {"amount": 10}}}})
+	var w := {"creep": "guard", "count": 1, "hp": 10, "interval": 1, "bounty": 1}
+	t.eq(g.wave_tags(w), ["Skjold"] as Array[String], "kind tag")
+	w["abilities"] = {"shield": false}
+	t.eq(g.wave_tags(w), [] as Array[String], "removed ability, no tag")
+
+
+func test_phases_are_sorted_and_zero_is_ignored() -> void:
+	var g := _game_with({"b": {"abilities": {"phases": {"at": [0.33, 0.0, 0.66], "time": 1.0}}}})
+	var c := _creep(g, "b", Vector2i(3, 1))
+	t.eq(c.abilities.phases.at, [0.66, 0.33], "highest first, no zero")
+
+
+func test_chain_skips_invulnerable_creeps() -> void:
+	var g := _game_with({})
+	g.tower_defs["x"] = {
+		"name": "X",
+		"root": "root",
+		"targets": ["ground"],
+		"nodes": {"root": _base._level(10, 20, {"chain": 1, "chain_range": 3.0})},
+	}
+	g.build(Vector2i(3, 0), "x")
+	var a := _creep(g, "normal", Vector2i(3, 1))
+	var boss := _creep(g, "normal", Vector2i(4, 1))
+	var other := _creep(g, "normal", Vector2i(5, 1))
+	boss.invulnerable_time = 5.0
+	g.tower_at(Vector2i(3, 0)).targeting = Tower.Targeting.CLOSEST
+	g.step()
+	t.eq(a.hp, 80.0, "first target hit")
+	t.eq(boss.hp, 100.0, "invulnerable creep skipped")
+	t.check(other.hp < 100.0, "the hop went to the next creep")

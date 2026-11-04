@@ -10,5 +10,5 @@
 	"immune": {"name": "Immun", "speed": 1.6, "armor": 2, "flying": false, "tag": "Immun", "abilities": {"immune": true}},
 	"invisible": {"name": "Usynlig", "speed": 1.9, "armor": 0, "flying": false, "tag": "Usynlig", "abilities": {"invisible": true}},
 	"miniboss": {"name": "Mellomboss", "speed": 1.2, "armor": 2, "flying": false, "boss": true, "scale": 1.3, "tag": "Boss", "abilities": {"immune": ["stun"], "enrage": {"below": 0.5, "speed": 1.6}}},
-	"boss": {"name": "Boss", "speed": 1.1, "armor": 4, "flying": false, "boss": true, "scale": 1.4, "tag": "Boss", "abilities": {"immune": ["stun"], "enrage": {"below": 0.5, "speed": 1.6}, "phases": {"at": [0.66, 0.33], "time": 2.0}, "summon": {"interval": 6.0, "count": 2, "creep": "spawnling", "hp": 140, "speed": 1.8, "bounty": 2, "model": "skeleton_minion"}}}
+	"boss": {"name": "Boss", "speed": 1.1, "armor": 4, "flying": false, "boss": true, "scale": 1.4, "tag": "Boss", "abilities": {"immune": ["stun"], "enrage": {"below": 0.5, "speed": 1.6}, "phases": {"at": [0.66, 0.33], "time": 2.0}, "summon": {"interval": 6.0, "count": 2, "max": 10, "creep": "spawnling", "hp": 140, "speed": 1.8, "bounty": 2, "model": "skeleton_minion"}}}
 }

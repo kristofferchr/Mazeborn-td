@@ -265,8 +265,13 @@ func wave_tags(w: Dictionary) -> Array[String]:
 		var group_tags: Array[String] = [
 			str(_creep_def(str(g.get("creep", "normal"))).get("tag", ""))
 		]
-		for ability: String in g.get("abilities", {}):
-			group_tags.append(str(ABILITY_TAGS.get(ability, "")))
+		var over: Dictionary = g.get("abilities", {})
+		for ability: String in over:
+			var tag := str(ABILITY_TAGS.get(ability, ""))
+			if over[ability] == null or (over[ability] is bool and not over[ability]):
+				group_tags.erase(tag)  # the group removes this ability
+			else:
+				group_tags.append(tag)
 		for tag in group_tags:
 			if tag != "" and tag not in tags:
 				tags.append(tag)
@@ -384,7 +389,12 @@ func _use_abilities() -> void:
 		if creep.ability_ready("heal", DT):
 			_heal(creep, creep.abilities.heal)
 		if creep.ability_ready("summon", DT):
-			creep_summoned.emit(creep, _spawn_children(creep, creep.abilities.summon))
+			var p: Dictionary = creep.abilities.summon
+			# A summoner stops at "max" summons in total, so creeps cannot pile up.
+			if creep.summoned < int(p.get("max", 8)):
+				var children := _spawn_children(creep, p)
+				creep.summoned += children.size()
+				creep_summoned.emit(creep, children)
 
 
 ## Heals every creep within "radius" of the healer (itself too) by "amount" plus
@@ -408,10 +418,14 @@ func _spawn_children(parent: Creep, p: Dictionary) -> Array[Creep]:
 	var hp := maxf(float(p.get("hp", 0.0)) + float(p.get("hp_percent", 0.0)) * parent.max_hp, 1.0)
 	var params := p.duplicate()
 	params.model = str(p.get("model", parent.model))
+	# Children never split or summon themselves: no endless chains.
+	var child_abilities: Dictionary = p.get("abilities", {}).duplicate(true)
+	child_abilities.merge({"split": false, "summon": false}, true)
+	params.abilities = child_abilities
 	var out: Array[Creep] = []
 	for i in int(p.get("count", 2)):
 		var c := new_creep(kind, hp, int(p.get("bounty", 1)), params, parent.prev_cell)
-		c.flying = parent.flying
+		c.flying = c.flying or parent.flying  # flyers from the data stay flyers
 		c.path = parent.path.duplicate()
 		c.next_index = parent.next_index
 		c.pos = parent.pos.move_toward(Grid.center(parent.prev_cell), 0.2 * i)
@@ -544,7 +558,13 @@ func _chain(s: Dictionary, damage: int, first: Creep, can_hit: Callable) -> void
 		var best: Creep = null
 		var best_d := float(s.get("chain_range", 2.0))
 		for c in creeps:
-			if c in done or not c.alive() or not c.targetable() or not can_hit.call(c):
+			if (
+				c in done
+				or not c.alive()
+				or not c.targetable()
+				or c.invulnerable_time > 0.0
+				or not can_hit.call(c)
+			):
 				continue
 			var d := c.pos.distance_to(from.pos)
 			if d <= best_d:

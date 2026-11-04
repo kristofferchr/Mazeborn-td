@@ -39,6 +39,7 @@ var invulnerable_time := 0.0  # seconds left without taking damage
 var timers: Dictionary = {}  # ability -> seconds to its next use
 var phase_started := false  # set when a phase begins, cleared by Game after its signal
 var enrage_started := false  # likewise for enrage
+var summoned := 0  # creeps this creep has summoned so far
 
 
 func _init(
@@ -79,6 +80,14 @@ func setup_abilities(p_abilities: Dictionary) -> void:
 	elif imm:
 		immune.assign(["slow", "stun", "knockback"])
 	invisible = bool(abilities.get("invisible", false))
+	if abilities.has("phases"):
+		# Highest threshold first, and none at 0 (that would be death, not a phase).
+		var at: Array = abilities.phases.get("at", []).filter(
+			func(v: Variant) -> bool: return float(v) > 0.0
+		)
+		at.sort()
+		at.reverse()
+		abilities.phases.at = at
 	for a: String in ["heal", "summon"]:
 		if abilities.has(a):
 			timers[a] = float(abilities[a].get("interval", 3.0))
