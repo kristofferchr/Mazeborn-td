@@ -7,7 +7,7 @@ extends CanvasLayer
 signal start_wave_pressed
 signal build_pressed
 signal kind_selected(kind: String)
-signal upgrade_pressed
+signal upgrade_pressed(option: String)
 signal sell_pressed
 signal targeting_pressed
 signal speed_pressed
@@ -55,7 +55,8 @@ var _build_button: Button
 var _tower_row: HBoxContainer
 var _tower_thumb: TextureRect
 var _pips: HBoxContainer
-var _upgrade: Button
+var _upgrades: HBoxContainer  # one card per upgrade option
+var _upgrades_key := ""  # tower and node the cards were made for
 var _targeting: Button
 var _sell: Button
 var _end: Control
@@ -64,9 +65,8 @@ var _end_text: Label
 var _end_stats: Label
 var _bars: Control
 var _floaters: Control
-var _thumbs: Dictionary = {}  # kind -> ViewportTexture
-var _thumb_views: Array[SubViewport] = []
-var _thumb_frames := 0
+var _thumbs: Dictionary = {}  # "kind:level:element" -> ViewportTexture
+var _thumb_life: Dictionary = {}  # SubViewport -> frames left to render
 var _ui: Array[Control] = []  # controls that swallow taps
 
 
@@ -74,7 +74,6 @@ func setup(p_game: Game, p_board: BoardView, p_camera: Camera3D) -> void:
 	game = p_game
 	board = p_board
 	camera = p_camera
-	_make_thumbnails()
 	_build()
 	game.game_over.connect(_on_game_over)
 	game.creep_killed.connect(_on_creep_killed)
@@ -105,7 +104,7 @@ func show_selection(cell: Vector2i, has_selection: bool, build_kind: String) -> 
 	_pips.visible = tower != null
 	if tower == null:
 		_info_title.text = game.tower_name(build_kind)
-		_info_stats.text = _describe(build_kind, game.tower_level_stats(build_kind))
+		_info_stats.text = _describe(build_kind, game.tower_base_stats(build_kind))
 		for kind: String in _kind_cards:
 			var card: Button = _kind_cards[kind]
 			card.button_pressed = kind == build_kind
@@ -117,19 +116,14 @@ func show_selection(cell: Vector2i, has_selection: bool, build_kind: String) -> 
 	else:
 		_info_title.text = tower.display_name()
 		_info_stats.text = _describe(tower.kind, tower.stats())
-		_tower_thumb.texture = _thumbs.get(tower.kind)
+		_tower_thumb.texture = _thumb(tower.kind, tower.level, tower.element())
 		for i in _pips.get_child_count():
 			var pip := _pips.get_child(i) as Panel
 			pip.visible = i <= tower.max_level()
 			(pip.get_theme_stylebox("panel") as StyleBoxFlat).bg_color = (
 				UiStyle.ACCENT if i <= tower.level else Color(1, 1, 1, 0.15)
 			)
-		if tower.can_upgrade():
-			_upgrade.text = "Oppgrader  %d" % tower.upgrade_cost()
-			_upgrade.disabled = not game.can_upgrade(cell)
-		else:
-			_upgrade.text = "Maks nivå"
-			_upgrade.disabled = true
+		_update_upgrades(cell, tower)
 		_sell.text = "Selg  +%d" % game.refund_for(tower)
 		_sell.disabled = game.is_over()
 		_targeting.text = "Først" if tower.targeting == Tower.Targeting.FIRST else "Nærmest"
@@ -156,12 +150,86 @@ func _process(_delta: float) -> void:
 	_update_next_wave()
 	_bars.queue_redraw()
 	# Thumbnails render for a few frames, then their viewports stop updating.
-	if _thumb_frames >= 0:
-		_thumb_frames += 1
-		if _thumb_frames > 8:
-			for v in _thumb_views:
-				v.render_target_update_mode = SubViewport.UPDATE_DISABLED
-			_thumb_frames = -1
+	for view: SubViewport in _thumb_life.keys():
+		_thumb_life[view] -= 1
+		if _thumb_life[view] <= 0:
+			view.render_target_update_mode = SubViewport.UPDATE_DISABLED
+			_thumb_life.erase(view)
+
+
+## Cards for the upgrades of the selected tower: rebuilt when the tower or its
+## node changes, enabled while the player can pay.
+func _update_upgrades(cell: Vector2i, tower: Tower) -> void:
+	var key := "%s:%s" % [cell, tower.node_id]
+	if key != _upgrades_key:
+		_upgrades_key = key
+		for child in _upgrades.get_children():
+			_upgrades.remove_child(child)
+			child.queue_free()
+		var options := tower.upgrade_options()
+		for option in options:
+			_upgrades.add_child(_upgrade_card(tower, option))
+		if options.is_empty():
+			var done := UiStyle.label("Maks nivå", 22, UiStyle.MUTED, true)
+			done.custom_minimum_size = Vector2(150, 0)
+			done.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			done.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			done.size_flags_vertical = Control.SIZE_EXPAND_FILL
+			_upgrades.add_child(done)
+	for card in _upgrades.get_children():
+		if card is Button:
+			var option: String = card.get_meta("option")
+			var ok := game.can_upgrade(cell, option)
+			card.disabled = not ok
+			card.modulate = Color.WHITE if ok else Color(1, 1, 1, 0.55)
+
+
+func _upgrade_card(tower: Tower, option: String) -> Button:
+	var node := tower.node(option)
+	var card := Button.new()
+	card.focus_mode = Control.FOCUS_NONE
+	card.custom_minimum_size = Vector2(132, 164)
+	card.set_meta("option", option)
+	var normal := UiStyle.button_box("secondary", "normal")
+	var element := str(node.get("element", ""))
+	if element != "":
+		normal.border_color = Color(BoardView.ELEMENT_COLORS[element], 0.8)
+		normal.set_border_width_all(2)
+	card.add_theme_stylebox_override("normal", normal)
+	card.add_theme_stylebox_override("disabled", normal)
+	card.pressed.connect(func() -> void: upgrade_pressed.emit(option))
+	var box := VBoxContainer.new()
+	box.set_anchors_preset(Control.PRESET_FULL_RECT)
+	box.add_theme_constant_override("separation", 0)
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(box)
+	var thumb := TextureRect.new()
+	thumb.texture = _thumb(tower.kind, tower.level + 1, element)
+	thumb.custom_minimum_size = Vector2(0, 54)
+	thumb.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	thumb.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	thumb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(thumb)
+	var title := str(node.get("name", option))
+	if element == "" and title == tower.display_name():
+		title = "Nivå %d" % (tower.level + 2)
+	var name_label := UiStyle.label(title, 20, UiStyle.TEXT, true)
+	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(name_label)
+	var desc := UiStyle.label(str(node.get("desc", "")), 14, UiStyle.MUTED)
+	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc.custom_minimum_size = Vector2(120, 0)
+	box.add_child(desc)
+	var price_row := HBoxContainer.new()
+	price_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	price_row.add_theme_constant_override("separation", 4)
+	price_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	price_row.add_child(UiIcon.make("coin", UiStyle.GOLD, 16))
+	price_row.add_child(UiStyle.label(str(int(node.cost)), 18, UiStyle.GOLD, true))
+	box.add_child(price_row)
+	return card
 
 
 ## One line of stats and effects for a tower kind at some level.
@@ -176,7 +244,20 @@ func _describe(kind: String, s: Dictionary) -> String:
 	if s.has("slow"):
 		parts.append("sakker ned %d %%" % roundi(float(s.slow) * 100.0))
 	if s.has("poison_dps"):
-		parts.append("gift %d/s ×%d" % [int(s.poison_dps), int(s.get("poison_stacks", 1))])
+		var what := "brann" if str(s.get("element", "")) == "fire" else "gift"
+		parts.append("%s %d/s ×%d" % [what, int(s.poison_dps), int(s.get("poison_stacks", 1))])
+	if s.has("stun"):
+		parts.append("stun %.1fs" % float(s.stun))
+	if s.has("knockback"):
+		parts.append("skyver tilbake")
+	if s.has("air_multiplier"):
+		parts.append("×%.1f mot luft" % float(s.air_multiplier))
+	if s.has("chain"):
+		parts.append("hopper %d" % int(s.chain))
+	if s.has("multishot"):
+		parts.append("%d mål" % int(s.multishot))
+	if s.get("armor_pierce", false):
+		parts.append("gjennom rustning")
 	var targets: Array = game.tower_defs[kind].get("targets", ["ground"])
 	if "air" in targets and "ground" in targets:
 		parts.append("bakke og luft")
@@ -338,14 +419,14 @@ func _build_panel() -> void:
 	_tower_thumb.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_tower_thumb.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	_tower_row.add_child(_tower_thumb)
-	_upgrade = _button("Oppgrader", "primary", func() -> void: upgrade_pressed.emit())
-	_upgrade.custom_minimum_size = Vector2(250, 84)
-	_tower_row.add_child(_upgrade)
+	_upgrades = HBoxContainer.new()
+	_upgrades.add_theme_constant_override("separation", 10)
+	_tower_row.add_child(_upgrades)
 	_targeting = _button("Først", "secondary", func() -> void: targeting_pressed.emit())
-	_targeting.custom_minimum_size = Vector2(150, 84)
+	_targeting.custom_minimum_size = Vector2(130, 84)
 	_tower_row.add_child(_targeting)
 	_sell = _button("Selg", "danger", func() -> void: sell_pressed.emit())
-	_sell.custom_minimum_size = Vector2(160, 84)
+	_sell.custom_minimum_size = Vector2(140, 84)
 	_tower_row.add_child(_sell)
 	_panel.visible = false
 	_root.add_child(_panel)
@@ -373,7 +454,7 @@ func _kind_card(kind: String) -> Button:
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(box)
 	var thumb := TextureRect.new()
-	thumb.texture = _thumbs.get(kind)
+	thumb.texture = _thumb(kind, 0, "")
 	thumb.custom_minimum_size = Vector2(0, 82)
 	thumb.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	thumb.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
@@ -475,36 +556,38 @@ func _button(text: String, kind: String, on_pressed: Callable) -> Button:
 	return b
 
 
-## Renders each tower kind into a small transparent texture for the menus.
-func _make_thumbnails() -> void:
-	for kind in game.tower_order:
-		var view := SubViewport.new()
-		view.size = Vector2i(THUMB, THUMB)
-		view.transparent_bg = true
-		view.own_world_3d = true
-		view.render_target_update_mode = SubViewport.UPDATE_ALWAYS
-		var model := board.tower_preview(kind)
-		view.add_child(model)
-		var top: float = model.get_meta("top", 1.5)
-		var look := Vector3(0, top * 0.45, 0)
-		var cam := Camera3D.new()
-		cam.fov = 30.0
-		view.add_child(cam)
-		cam.look_at_from_position(
-			look + Vector3(1.6, 1.3, 2.6).normalized() * (top * 2.6 + 1.0), look
-		)
-		var sun := DirectionalLight3D.new()
-		sun.rotation_degrees = Vector3(-45, 35, 0)
-		view.add_child(sun)
-		var env := WorldEnvironment.new()
-		env.environment = Environment.new()
-		env.environment.background_mode = Environment.BG_CLEAR_COLOR
-		env.environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-		env.environment.ambient_light_color = Color(0.75, 0.78, 0.9)
-		view.add_child(env)
-		add_child(view)
-		_thumb_views.append(view)
-		_thumbs[kind] = view.get_texture()
+## A small transparent picture of a tower kind at a level and element, rendered
+## on demand for the menus and cached.
+func _thumb(kind: String, level: int, element: String) -> Texture2D:
+	var key := "%s:%d:%s" % [kind, level, element]
+	if _thumbs.has(key):
+		return _thumbs[key]
+	var view := SubViewport.new()
+	view.size = Vector2i(THUMB, THUMB)
+	view.transparent_bg = true
+	view.own_world_3d = true
+	view.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	var model := board.tower_preview(kind, level, element)
+	view.add_child(model)
+	var top: float = model.get_meta("top", 1.5)
+	var look := Vector3(0, top * 0.45, 0)
+	var cam := Camera3D.new()
+	cam.fov = 30.0
+	view.add_child(cam)
+	cam.look_at_from_position(look + Vector3(1.6, 1.3, 2.6).normalized() * (top * 2.6 + 1.0), look)
+	var sun := DirectionalLight3D.new()
+	sun.rotation_degrees = Vector3(-45, 35, 0)
+	view.add_child(sun)
+	var env := WorldEnvironment.new()
+	env.environment = Environment.new()
+	env.environment.background_mode = Environment.BG_CLEAR_COLOR
+	env.environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.environment.ambient_light_color = Color(0.75, 0.78, 0.9)
+	view.add_child(env)
+	add_child(view)
+	_thumb_life[view] = 8
+	_thumbs[key] = view.get_texture()
+	return _thumbs[key]
 
 
 # --- Layout and drawing --------------------------------------------------------

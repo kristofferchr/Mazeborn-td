@@ -15,7 +15,7 @@
     "nodes" : [
         {
             "mesh" : 0,
-            "name" : "building_archeryrange_yellow"
+            "name" : "building_tower_base_yellow"
         }
     ],
     "materials" : [
@@ -32,7 +32,7 @@
     ],
     "meshes" : [
         {
-            "name" : "building_archeryrange_yellow",
+            "name" : "building_tower_base_yellow",
             "primitives" : [
                 {
                     "attributes" : {
@@ -63,61 +63,61 @@
         {
             "bufferView" : 0,
             "componentType" : 5126,
-            "count" : 5608,
+            "count" : 2265,
             "max" : [
-                0.8706369400024414,
-                1.7917345762252808,
-                0.6773496270179749
+                0.4648962616920471,
+                1.5,
+                0.5800000429153442
             ],
             "min" : [
-                -0.799997091293335,
+                -0.4648962616920471,
                 0,
-                -0.8734661936759949
+                -0.5311260223388672
             ],
             "type" : "VEC3"
         },
         {
             "bufferView" : 1,
             "componentType" : 5126,
-            "count" : 5608,
+            "count" : 2265,
             "type" : "VEC2"
         },
         {
             "bufferView" : 2,
             "componentType" : 5126,
-            "count" : 5608,
+            "count" : 2265,
             "type" : "VEC3"
         },
         {
             "bufferView" : 3,
             "componentType" : 5123,
-            "count" : 11457,
+            "count" : 4614,
             "type" : "SCALAR"
         }
     ],
     "bufferViews" : [
         {
             "buffer" : 0,
-            "byteLength" : 67296,
+            "byteLength" : 27180,
             "byteOffset" : 0,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 44864,
-            "byteOffset" : 67296,
+            "byteLength" : 18120,
+            "byteOffset" : 27180,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 67296,
-            "byteOffset" : 112160,
+            "byteLength" : 27180,
+            "byteOffset" : 45300,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 22914,
-            "byteOffset" : 179456,
+            "byteLength" : 9228,
+            "byteOffset" : 72480,
             "target" : 34963
         }
     ],
@@ -129,8 +129,8 @@
     ],
     "buffers" : [
         {
-            "byteLength" : 202372,
-            "uri" : "building_archeryrange_yellow.bin"
+            "byteLength" : 81708,
+            "uri" : "building_tower_base_yellow.bin"
         }
     ]
 }

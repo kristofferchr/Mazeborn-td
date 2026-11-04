@@ -19,6 +19,8 @@ var prev_cell: Vector2i  # cell the creep is walking from
 var slow := 0.0  # current slow (0..1), strongest one wins
 var slow_time := 0.0
 var poison: Array[Vector2] = []  # stacks of (damage per second, seconds left)
+var burn_time := 0.0  # seconds left of a fire effect (poison stacks from fire; for the view)
+var stun_time := 0.0  # seconds left stunned (stands still)
 
 
 func _init(
@@ -68,9 +70,9 @@ func set_path(p_path: Array[Vector2i]) -> void:
 	next_index = 0
 
 
-## Damage from a hit, reduced by armor (always at least 1).
-func hit(amount: float) -> float:
-	var dealt := maxf(amount - armor, 1.0)
+## Damage from a hit, reduced by armor unless it pierces (always at least 1).
+func hit(amount: float, pierce := false) -> float:
+	var dealt := maxf(amount - (0 if pierce else armor), 1.0)
 	hp -= dealt
 	return dealt
 
@@ -90,8 +92,25 @@ func apply_poison(dps: float, seconds: float, max_stacks: int) -> void:
 	poison.append(Vector2(dps, seconds))
 
 
-## Ticks slow and poison; returns the poison damage dealt (ignores armor).
+func apply_stun(seconds: float) -> void:
+	stun_time = maxf(stun_time, seconds)
+
+
+## Pushes the creep back along its way: towards the cell it came from (never
+## past it), or for a flyer straight away from the goal.
+func knock_back(distance: float) -> void:
+	if flying:
+		var away := pos - Grid.center(target_cell())
+		if away.length() > 0.001:
+			pos += away.normalized() * distance
+		return
+	pos = pos.move_toward(Grid.center(prev_cell), distance)
+
+
+## Ticks stun, slow and poison; returns the poison damage dealt (ignores armor).
 func tick_effects(dt: float) -> float:
+	stun_time = maxf(stun_time - dt, 0.0)
+	burn_time = maxf(burn_time - dt, 0.0)
 	if slow_time > 0.0:
 		slow_time -= dt
 		if slow_time <= 0.0:
@@ -112,7 +131,7 @@ func tick_effects(dt: float) -> float:
 
 
 func current_speed() -> float:
-	return speed * (1.0 - slow)
+	return 0.0 if stun_time > 0.0 else speed * (1.0 - slow)
 
 
 ## Moves the creep; returns true when it reached the end of its path.

@@ -15,6 +15,7 @@ signal tower_built(tower: Tower)
 signal tower_upgraded(tower: Tower)
 signal tower_sold(tower: Tower, refund: int)
 signal tower_fired(tower: Tower, creep: Creep, damage: int)
+signal chain_hit(from: Vector2, creep: Creep)  # a lightning hop to another creep
 signal projectile_hit(projectile: Projectile, creep: Creep)  # creep is null on a miss
 signal gold_bonus(amount: int, reason: String)  # wave bonus, interest, early send
 signal creep_spawned(creep: Creep)
@@ -101,16 +102,17 @@ static func load_json(res_path: String) -> Dictionary:
 
 
 func build_cost(kind: String) -> int:
-	return int(tower_defs[kind].levels[0].cost)
+	return int(tower_base_stats(kind).cost)
 
 
 func tower_name(kind: String) -> String:
 	return str(tower_defs[kind].get("name", kind))
 
 
-## Stats of a tower kind at a level (for previews).
-func tower_level_stats(kind: String, level := 0) -> Dictionary:
-	return tower_defs[kind].levels[level]
+## Stats of a kind as built (the root of its upgrade tree), for previews.
+func tower_base_stats(kind: String) -> Dictionary:
+	var def: Dictionary = tower_defs[kind]
+	return def.nodes[def.root]
 
 
 func refund_for(tower: Tower) -> int:
@@ -150,17 +152,24 @@ func build(cell: Vector2i, kind := "stone") -> Tower:
 	return tower
 
 
-func can_upgrade(cell: Vector2i) -> bool:
+## True if the tower on cell can take the upgrade `option` (an id from
+## tower.upgrade_options(); "" is the first one) and the player can pay for it.
+func can_upgrade(cell: Vector2i, option := "") -> bool:
 	var tower := tower_at(cell)
-	return tower != null and not is_over() and tower.can_upgrade() and gold >= tower.upgrade_cost()
+	return (
+		tower != null
+		and not is_over()
+		and tower.can_upgrade(option)
+		and gold >= tower.upgrade_cost(option)
+	)
 
 
-func upgrade(cell: Vector2i) -> bool:
-	if not can_upgrade(cell):
+func upgrade(cell: Vector2i, option := "") -> bool:
+	if not can_upgrade(cell, option):
 		return false
 	var tower := tower_at(cell)
-	_add_gold(-tower.upgrade_cost())
-	tower.upgrade()
+	_add_gold(-tower.upgrade_cost(option))
+	tower.upgrade(option)
 	tower_upgraded.emit(tower)
 	return true
 
@@ -357,13 +366,17 @@ func _fire_towers() -> void:
 
 func _attack(tower: Tower, target: Creep) -> void:
 	var s := tower.stats()
-	var damage := rng.randi_range(int(s.damage_min), int(s.damage_max))
-	tower_fired.emit(tower, target, damage)
-	if s.has("projectile_speed"):
-		projectiles.append(Projectile.new(_next_projectile_id, tower, target, damage))
-		_next_projectile_id += 1
-	else:
-		_impact(s, damage, target, target.pos, tower.can_hit)
+	var targets: Array[Creep] = [target]
+	if int(s.get("multishot", 1)) > 1:
+		targets = tower.pick_targets(creeps, int(s.multishot))
+	for t in targets:
+		var damage := rng.randi_range(int(s.damage_min), int(s.damage_max))
+		tower_fired.emit(tower, t, damage)
+		if s.has("projectile_speed"):
+			projectiles.append(Projectile.new(_next_projectile_id, tower, t, damage))
+			_next_projectile_id += 1
+		else:
+			_impact(s, damage, t, t.pos, tower.can_hit)
 
 
 func _move_projectiles() -> void:
@@ -379,20 +392,61 @@ func _move_projectiles() -> void:
 
 ## Damage and effects of a hit on target (may be null: splash only) at `at`.
 func _impact(s: Dictionary, damage: int, target: Creep, at: Vector2, can_hit: Callable) -> void:
+	var pierce := bool(s.get("armor_pierce", false))
 	if target:
-		target.hit(damage)
-		if s.has("slow"):
-			target.apply_slow(float(s.slow), float(s.slow_time))
-		if s.has("poison_dps"):
-			target.apply_poison(
-				float(s.poison_dps), float(s.poison_time), int(s.get("poison_stacks", 1))
-			)
+		var amount := float(damage)
+		if target.flying:
+			amount *= float(s.get("air_multiplier", 1.0))
+		target.hit(amount, pierce)
+		_apply_effects(s, target)
+		if s.has("stun"):
+			target.apply_stun(float(s.stun))
+		if s.has("knockback"):
+			target.knock_back(float(s.knockback))
 	if s.has("splash_radius"):
 		var radius := float(s.splash_radius)
 		for other in creeps:
 			if other != target and other.alive() and can_hit.call(other):
 				if other.pos.distance_to(at) <= radius:
-					other.hit(damage * float(s.splash_factor))
+					other.hit(damage * float(s.splash_factor), pierce)
+					if s.get("splash_effects", false):
+						_apply_effects(s, other)
+	if target and s.has("chain"):
+		_chain(s, damage, target, can_hit)
+
+
+## Slow, poison and burn from a hit.
+func _apply_effects(s: Dictionary, c: Creep) -> void:
+	if s.has("slow"):
+		c.apply_slow(float(s.slow), float(s.slow_time))
+	if s.has("poison_dps"):
+		c.apply_poison(float(s.poison_dps), float(s.poison_time), int(s.get("poison_stacks", 1)))
+		if str(s.get("element", "")) == "fire":
+			c.burn_time = maxf(c.burn_time, float(s.poison_time))
+
+
+## Lightning that hops from the target to the nearest creeps not hit yet.
+func _chain(s: Dictionary, damage: int, first: Creep, can_hit: Callable) -> void:
+	var done: Array[Creep] = [first]
+	var from := first
+	var amount := float(damage)
+	for i in int(s.chain):
+		amount *= float(s.get("chain_factor", 0.7))
+		var best: Creep = null
+		var best_d := float(s.get("chain_range", 2.0))
+		for c in creeps:
+			if c in done or not c.alive() or not can_hit.call(c):
+				continue
+			var d := c.pos.distance_to(from.pos)
+			if d <= best_d:
+				best = c
+				best_d = d
+		if best == null:
+			return
+		chain_hit.emit(from.pos, best)
+		best.hit(amount, bool(s.get("armor_pierce", false)))
+		done.append(best)
+		from = best
 
 
 ## Removes dead creeps and pays their bounty.

@@ -15,14 +15,14 @@
 			{"creep": "normal", "model": "rat", "count": 10, "hp": 150, "interval": 0.8, "bounty": 5},
 			{"creep": "fast", "model": "velociraptor", "count": 10, "hp": 110, "interval": 0.5, "bounty": 4}
 		]},
-		{"groups": [{"creep": "armored", "model": "stegosaurus", "count": 14, "hp": 260, "interval": 0.9, "bounty": 7}]},
-		{"groups": [{"creep": "flying", "model": "dragon", "count": 16, "hp": 200, "interval": 0.8, "bounty": 6}]},
-		{"groups": [{"creep": "fast", "model": "velociraptor", "count": 26, "hp": 220, "interval": 0.45, "bounty": 5}]},
+		{"groups": [{"creep": "armored", "model": "stegosaurus", "count": 14, "hp": 299, "interval": 0.9, "bounty": 7}]},
+		{"groups": [{"creep": "flying", "model": "dragon", "count": 16, "hp": 230, "interval": 0.8, "bounty": 6}]},
+		{"groups": [{"creep": "fast", "model": "velociraptor", "count": 26, "hp": 253, "interval": 0.45, "bounty": 5}]},
 		{"groups": [
-			{"creep": "armored", "model": "triceratops", "count": 10, "hp": 420, "interval": 0.9, "bounty": 8},
-			{"creep": "flying", "model": "wasp", "count": 10, "hp": 320, "interval": 0.8, "bounty": 8}
+			{"creep": "armored", "model": "triceratops", "count": 10, "hp": 483, "interval": 0.9, "bounty": 8},
+			{"creep": "flying", "model": "wasp", "count": 10, "hp": 368, "interval": 0.8, "bounty": 8}
 		]},
-		{"groups": [{"creep": "normal", "model": "trex", "count": 20, "hp": 560, "interval": 0.7, "bounty": 9}]},
-		{"groups": [{"creep": "boss", "model": "skeleton_warrior", "count": 1, "hp": 9000, "interval": 1.0, "bounty": 150}]}
+		{"groups": [{"creep": "normal", "model": "trex", "count": 20, "hp": 644, "interval": 0.7, "bounty": 9}]},
+		{"groups": [{"creep": "boss", "model": "skeleton_warrior", "count": 1, "hp": 11700, "interval": 1.0, "bounty": 150}]}
 	]
 }

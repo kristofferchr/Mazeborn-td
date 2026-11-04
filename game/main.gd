@@ -13,7 +13,7 @@ var camera: CameraRig
 var hud: Hud
 var speed := 1.0
 var selected := NO_CELL
-var build_kind := "stone"  # tower kind chosen in the build menu
+var build_kind := "arrow"  # tower kind chosen in the build menu
 
 var _touches: Dictionary = {}  # index -> position
 var _tap_start := Vector2.ZERO
@@ -40,7 +40,7 @@ func _ready() -> void:
 	hud.start_wave_pressed.connect(func() -> void: game.start_wave())
 	hud.build_pressed.connect(func() -> void: _build_selected())
 	hud.sell_pressed.connect(_sell_selected)
-	hud.upgrade_pressed.connect(func() -> void: game.upgrade(selected))
+	hud.upgrade_pressed.connect(func(option: String) -> void: game.upgrade(selected, option))
 	hud.kind_selected.connect(func(kind: String) -> void: build_kind = kind)
 	hud.targeting_pressed.connect(_toggle_targeting)
 	hud.speed_pressed.connect(_toggle_speed)

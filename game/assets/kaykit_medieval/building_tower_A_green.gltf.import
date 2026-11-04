@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://bq5kf566vd410"
-path="res://.godot/imported/building_archeryrange_yellow.gltf-238db1343b5d686868079ba075fa24ab.scn"
+uid="uid://byu2awixb1wxa"
+path="res://.godot/imported/building_tower_A_green.gltf-6379567b24b653fbdc9cdf43d590cee1.scn"
 
 [deps]
 
-source_file="res://assets/kaykit_medieval/building_archeryrange_yellow.gltf"
-dest_files=["res://.godot/imported/building_archeryrange_yellow.gltf-238db1343b5d686868079ba075fa24ab.scn"]
+source_file="res://assets/kaykit_medieval/building_tower_A_green.gltf"
+dest_files=["res://.godot/imported/building_tower_A_green.gltf-6379567b24b653fbdc9cdf43d590cee1.scn"]
 
 [params]
 

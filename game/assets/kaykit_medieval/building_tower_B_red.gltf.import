@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://cvqvex2lenha5"
-path="res://.godot/imported/building_tower_catapult_yellow.gltf-f8db9d5881f2c9d44c73f9d18ed44b7c.scn"
+uid="uid://4i71i7sga5x7"
+path="res://.godot/imported/building_tower_B_red.gltf-9392e7baafcaede928f76d9f35d151c6.scn"
 
 [deps]
 
-source_file="res://assets/kaykit_medieval/building_tower_catapult_yellow.gltf"
-dest_files=["res://.godot/imported/building_tower_catapult_yellow.gltf-f8db9d5881f2c9d44c73f9d18ed44b7c.scn"]
+source_file="res://assets/kaykit_medieval/building_tower_B_red.gltf"
+dest_files=["res://.godot/imported/building_tower_B_red.gltf-9392e7baafcaede928f76d9f35d151c6.scn"]
 
 [params]
 

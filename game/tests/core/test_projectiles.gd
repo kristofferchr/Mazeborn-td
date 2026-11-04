@@ -8,7 +8,7 @@ var _base: Object = load("res://tests/core/test_game.gd").new()
 func _game(gold := 100) -> Game:
 	var g: Game = _base._game([_base._wave(1, 10)], gold)
 	for kind: String in g.tower_defs:
-		g.tower_defs[kind].levels[0]["projectile_speed"] = 3.0
+		g.tower_base_stats(kind)["projectile_speed"] = 3.0
 	return g
 
 
@@ -63,7 +63,7 @@ func test_shot_at_a_dead_creep_fizzles() -> void:
 
 func test_cannon_ball_splashes_where_its_dead_target_was() -> void:
 	var g := _game()
-	g.tower_defs.cannon.levels[0].cooldown = 100.0  # one shot only
+	g.tower_base_stats("cannon").cooldown = 100.0  # one shot only
 	g.build(Vector2i(4, 0), "cannon")
 	var a := _creep(g, Vector2i(3, 1))
 	var b := _creep(g, Vector2i(4, 1))
@@ -92,9 +92,13 @@ func test_interest_on_unspent_gold_is_capped() -> void:
 	t.eq(g.gold, 1015, "capped at 15")
 
 
-func test_default_towers_fire_projectiles() -> void:
+func test_default_towers_fire_projectiles_except_lightning() -> void:
 	var g := Game.create_default()
 	for kind in g.tower_order:
-		for level: Dictionary in g.tower_defs[kind].levels:
-			t.check(level.has("projectile_speed"), "%s has a projectile speed" % kind)
+		for id: String in g.tower_defs[kind].nodes:
+			var node: Dictionary = g.tower_defs[kind].nodes[id]
+			# Lightning hits instantly; everything else flies.
+			t.check(
+				node.has("projectile_speed") or node.has("chain"), "%s has a projectile speed" % id
+			)
 	t.check(g.interest_rate > 0.0 and g.interest_max > 0, "interest configured")
