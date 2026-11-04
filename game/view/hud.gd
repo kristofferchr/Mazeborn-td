@@ -12,6 +12,7 @@ signal sell_pressed
 signal targeting_pressed
 signal speed_pressed
 signal retry_pressed
+signal maps_pressed
 
 const MARGIN := 20.0
 const TAG_COLORS := {
@@ -510,11 +511,18 @@ func _build_end_screen() -> void:
 	var gap := Control.new()
 	gap.custom_minimum_size = Vector2(0, 10)
 	box.add_child(gap)
+	var buttons := HBoxContainer.new()
+	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
+	buttons.add_theme_constant_override("separation", 16)
+	box.add_child(buttons)
+	var maps := _button("Velg kart", "secondary", func() -> void: maps_pressed.emit())
+	maps.custom_minimum_size = Vector2(240, 96)
+	maps.add_theme_font_size_override("font_size", 30)
+	buttons.add_child(maps)
 	var retry := _button("Prøv igjen", "primary", func() -> void: retry_pressed.emit())
-	retry.custom_minimum_size = Vector2(340, 96)
+	retry.custom_minimum_size = Vector2(300, 96)
 	retry.add_theme_font_size_override("font_size", 34)
-	retry.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	box.add_child(retry)
+	buttons.add_child(retry)
 	_root.add_child(_end)
 
 
@@ -696,8 +704,8 @@ func _on_game_over(won: bool) -> void:
 	_next.visible = false
 	_end.visible = true
 	_end_stats.text = (
-		"Bølge %d av %d   ·   %d liv   ·   %d gull"
-		% [game.wave, game.waves.size(), game.lives, game.gold]
+		"%s   ·   Bølge %d av %d   ·   %d liv   ·   %d gull"
+		% [game.map.get("name", "Kart"), game.wave, game.waves.size(), game.lives, game.gold]
 	)
 	if won:
 		_end_title.text = "Seier!"
