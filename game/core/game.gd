@@ -483,7 +483,7 @@ func endless_wave(number: int) -> Dictionary:
 	var main := _endless_kinds[(k - 1) % _endless_kinds.size()]
 	var groups: Array = []
 	var boss_every := int(ec.get("boss_every", 5))
-	var boss_kinds: Array = (ec.get("boss_kinds", ["miniboss", "boss"]) as Array).filter(
+	var boss_kinds: Array = (ec.get("boss_kinds", ["boss", "miniboss"]) as Array).filter(
 		func(b: Variant) -> bool: return creep_defs.has(str(b))
 	)
 	if boss_every > 0 and number % boss_every == 0 and not boss_kinds.is_empty():
