@@ -24,10 +24,16 @@ func _ready() -> void:
 	_apply()
 
 
+## Start distance that shows a whole map of this size above the HUD (about 20
+## for the 18x12 default map).
+static func fit_distance(map_size: Vector2) -> float:
+	return maxf(maxf(map_size.x * 0.95, map_size.y * 1.7), 12.0)
+
+
 func setup(map_bounds: Rect2, start_distance: float) -> void:
 	bounds = map_bounds
-	# Slightly below the centre so the map sits above the bottom HUD.
-	focus = Vector3(bounds.get_center().x, 0.0, bounds.get_center().y + 1.0)
+	# Below the centre so the map sits above the bottom HUD.
+	focus = Vector3(bounds.get_center().x, 0.0, bounds.get_center().y + 2.0)
 	max_distance = start_distance * 1.25
 	distance = start_distance
 	_apply()

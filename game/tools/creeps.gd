@@ -10,7 +10,7 @@ const FLYING := ["bat", "dragon", "wasp"]
 
 
 func _ready() -> void:
-	var main: Node = load("res://main.tscn").instantiate()
+	var main: Node = load("res://round.tscn").instantiate()
 	add_child(main)
 	main.speed = 0.0
 	var game: Game = main.game

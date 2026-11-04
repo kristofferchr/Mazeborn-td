@@ -14,13 +14,19 @@ Tower defense for iOS i klassisk Warcraft 3-stil: 3D-grafikk oppå 2D-logikk på
 game/            Godot-prosjektet
   core/          spillregler som ren 2D-logikk (Grid, Game, Creep, Tower), testes headless
   data/          bølger og økonomi (waves.json), tårntyper (towers.json) og fiendetyper (creeps.json)
-  view/          3D-lag, HUD og lyd som bare leser tilstanden (BoardView, Effects, CameraRig, Hud, HudFx, GameAudio)
+  data/maps/     kart som data: størrelse, portaler, mål, steiner og regler (én JSON per kart)
+  view/          3D-lag, HUD, lyd og kartvalg som bare leser tilstanden (BoardView, Effects, CameraRig, Hud, HudFx, GameAudio, MapSelect)
+  main.tscn      appen: kartvalg, deretter en runde (round.tscn)
   tests/         headless tester (scripts/test.sh)
   tools/         skjermbilde, demo-scener og balanse-bot (ikke med i eksporten)
 ios/             eksportert Xcode-prosjekt og ci_scripts for Xcode Cloud
 scripts/         godot.sh (pinnet versjon), export-ios.sh, export-web.sh, screenshot.sh, make_sfx.py (lyd)
 .godot-version   Godot-versjonen som brukes overalt
 ```
+
+## Kart
+
+Kartene ligger i `game/data/maps/<id>.json`: `name` og `description` (vises i kartvalget), `order`, `size` `[b, h]`, `spawns` (én eller flere `[x, y]`), `goal`, `blocked` (steinceller `[x, y]` eller rektangler `[x, y, b, h]`), valgfritt `decor` (`style` `"mountain"` eller `"boulders"`, `trees`, `boulders`) og `rules` (overstyrer `waves.json`, f.eks. `hp_scale` eller `start_gold`). Fiendene veksler mellom portalene, og man kan aldri bygge slik at en portal blir stengt inne. Nye kart testes av `game/tests/core/test_maps.gd` (legg id-en inn der), og boten bør vinne dem med noen liv tapt.
 
 ## Kommandoer
 
@@ -32,7 +38,9 @@ scripts/screenshot.sh shot.png        # skjermbilde (xvfb, Compatibility-rendere
 scripts/test.sh                       # headless tester (game/tests/**/test_*.gd)
 gdlint game && gdformat --check game  # lint (pip install "gdtoolkit==4.5.0")
 scripts/screenshot.sh shot.png res://tools/demo.tscn 30 2532x1170  # maze midt i en bølge
+DEMO_MAP=klofta scripts/screenshot.sh shot.png res://tools/demo.tscn 30 2532x1170  # samme på et annet kart
 scripts/screenshot.sh shot.png res://tools/juice.tscn 8 2532x1170   # banner, skadetall og partikler
 scripts/make_sfx.py                   # lager alle lydeffekter og musikken i game/assets/audio/
-scripts/godot.sh --headless --path game -s res://tools/balance.gd   # bot spiller en runde
+scripts/godot.sh --headless --path game -s res://tools/balance.gd   # bot spiller alle kartene
+scripts/godot.sh --headless --path game -s res://tools/balance.gd -- klofta 7  # ett kart, seed 7
 ```

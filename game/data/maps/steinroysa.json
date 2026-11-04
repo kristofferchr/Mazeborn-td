@@ -1,0 +1,16 @@
+{
+	"name": "Steinrøysa",
+	"description": "Spredte steiner overalt. Bruk dem som gratis vegger i mazen.",
+	"order": 4,
+	"size": [20, 12],
+	"spawns": [[0, 1]],
+	"goal": [19, 10],
+	"blocked": [
+		[3, 4], [4, 4], [2, 8], [4, 7], [5, 10],
+		[6, 6], [7, 1], [7, 2], [8, 8], [9, 4],
+		[10, 10], [11, 6], [11, 7], [12, 2], [13, 1],
+		[13, 9], [14, 5], [15, 0], [16, 7], [16, 8],
+		[17, 3], [18, 6]
+	],
+	"decor": {"style": "boulders", "trees": 150, "boulders": 14}
+}

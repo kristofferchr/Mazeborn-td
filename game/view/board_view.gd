@@ -50,6 +50,12 @@ const TOWER_ART := {
 	],
 }
 const CANNON_BALL := "res://assets/kaykit_medieval/projectile_catapult.gltf"
+## Rock cells: tall peaks (style "mountain") or piles of boulders ("boulders").
+const MOUNTAIN_MODELS := ["mountain_A", "mountain_B", "mountain_C"]
+const BOULDER_MODELS := ["rock_single_C", "rock_single_E"]
+const PEBBLE_MODELS := ["rock_single_A", "rock_single_B", "rock_single_D"]
+const ROCK_BASE := Color(0.36, 0.33, 0.3)
+const STONE_COLORS := [Color(0.56, 0.52, 0.47), Color(0.5, 0.47, 0.43), Color(0.6, 0.57, 0.52)]
 const TREE_MODELS := [
 	"tree_single_A.gltf",
 	"tree_single_B.gltf",
@@ -85,7 +91,7 @@ var _towers: Dictionary = {}  # Vector2i -> Node3D
 var _creeps: Dictionary = {}  # creep id -> Node3D
 var _creep_models: Dictionary = {}  # creep id -> CreepArt id
 var _scenes: Dictionary = {}  # path -> PackedScene
-var _path: MeshInstance3D
+var _paths: Array[MeshInstance3D] = []  # one ribbon per spawn
 var _ground: ShaderMaterial
 var _ghosts: Dictionary = {}  # kind -> translucent preview model
 var _tops: Dictionary = {}  # model file -> height of the model at scale 1
@@ -95,6 +101,7 @@ var _ring: MeshInstance3D
 var _projectiles: Dictionary = {}  # projectile id -> Node3D
 var _overlays: Dictionary = {}  # status -> shared overlay material
 var _grid_alpha := 0.05
+var _stone_mats: Array[StandardMaterial3D] = []
 
 
 static func cell_pos(cell: Vector2i, height := 0.0) -> Vector3:
@@ -128,10 +135,12 @@ static func mat(color: Color, unshaded := false) -> StandardMaterial3D:
 func setup(p_game: Game) -> void:
 	game = p_game
 	_build_world()
-	_path = MeshInstance3D.new()
-	_path.material_override = _shader("path")
-	_path.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(_path)
+	for i in game.grid.spawns.size():
+		var ribbon := MeshInstance3D.new()
+		ribbon.material_override = _shader("path")
+		ribbon.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(ribbon)
+		_paths.append(ribbon)
 	_cell = _shaded_plane(Vector2.ONE, "cell")
 	_ring = _shaded_plane(Vector2(2, 2), "ring")
 	for n: MeshInstance3D in [_cell, _ring]:
@@ -185,9 +194,12 @@ func creep_world_pos(creep: Creep) -> Vector3:
 	return Vector3(p.x, FLY_HEIGHT if creep.flying else 0.0, p.y)
 
 
-## Shows the build preview (a translucent tower, green or red) for build_kind,
-## the selected tower with its range, or nothing. The grid shows while selecting.
-func show_selection(cell: Vector2i, has_selection: bool, build_kind: String) -> void:
+## Shows the build preview (a translucent tower, green if `buildable`, else red)
+## for build_kind, the selected tower with its range, or nothing. The grid
+## shows while selecting.
+func show_selection(
+	cell: Vector2i, has_selection: bool, build_kind: String, buildable: bool
+) -> void:
 	var tower := game.tower_at(cell) if has_selection else null
 	_cell.visible = has_selection
 	_ring.visible = has_selection
@@ -196,7 +208,7 @@ func show_selection(cell: Vector2i, has_selection: bool, build_kind: String) -> 
 	_set_grid_alpha(0.16 if has_selection and tower == null else 0.05)
 	if not has_selection:
 		return
-	var ok := tower != null or game.can_build(cell, build_kind)
+	var ok := tower != null or buildable
 	var color := Color(1.0, 0.85, 0.35) if tower else (OK_COLOR if ok else BAD_COLOR)
 	(_cell.material_override as ShaderMaterial).set_shader_parameter("color", color)
 	(_ring.material_override as ShaderMaterial).set_shader_parameter("color", color)
@@ -331,9 +343,82 @@ func _build_world() -> void:
 	outer.material_override = outer_mat
 	outer.position = Vector3(size.x / 2.0, -PLATEAU, size.y / 2.0)
 	add_child(outer)
-	_portal(game.grid.spawn, SPAWN_COLOR, 1.0, false)
+	for s in game.grid.spawns:
+		_portal(s, SPAWN_COLOR, 1.0, false)
 	_portal(game.grid.goal, GOAL_COLOR, -1.0, true)
+	_rocks()
 	_trees()
+	_outer_boulders()
+
+
+## Look hint from the map (data/maps/), e.g. "trees" or "style".
+func _decor(key: String, default: Variant) -> Variant:
+	return game.map.get("decor", {}).get(key, default)
+
+
+## Rock cells: a stone slab with peaks or boulders on top, varied per cell
+## (fixed by the cell, so the map always looks the same).
+func _rocks() -> void:
+	var style := str(_decor("style", "boulders"))
+	var slab_mat := mat(ROCK_BASE)
+	slab_mat.roughness = 0.95
+	var slab_mesh := _box(Vector3(1.0, 0.16, 1.0))
+	for cell: Vector2i in game.grid.rocks:
+		var rng := RandomNumberGenerator.new()
+		rng.seed = hash(cell) + 17
+		var slab := MeshInstance3D.new()
+		slab.mesh = slab_mesh
+		slab.material_override = slab_mat
+		slab.position = cell_pos(cell, 0.08)
+		add_child(slab)
+		var at := cell_pos(cell, 0.14)
+		if style == "mountain":
+			var file: String = MOUNTAIN_MODELS[rng.randi() % MOUNTAIN_MODELS.size()]
+			_stone(file, at, rng.randf_range(0.55, 0.66), rng)
+		else:
+			# Boulder sizes so each model about fills the cell.
+			if rng.randf() < 0.5:
+				_stone("rock_single_C", at, rng.randf_range(2.5, 2.9), rng)
+			else:
+				_stone("rock_single_E", at, rng.randf_range(1.9, 2.1), rng)
+			for i in rng.randi_range(1, 2):
+				var off := Vector3(rng.randf_range(-0.36, 0.36), 0.0, rng.randf_range(-0.36, 0.36))
+				var pebble: String = PEBBLE_MODELS[rng.randi() % PEBBLE_MODELS.size()]
+				_stone(pebble, at + off, rng.randf_range(1.2, 1.7), rng)
+
+
+## A KayKit rock model at a position with a scale, a random turn and one of the
+## stone colours.
+func _stone(file: String, at: Vector3, scale_by: float, rng: RandomNumberGenerator) -> Node3D:
+	if _stone_mats.is_empty():
+		for c: Color in STONE_COLORS:
+			var m := mat(c)
+			m.roughness = 0.9
+			_stone_mats.append(m)
+	var node := _scene(MEDIEVAL + file + ".gltf").instantiate() as Node3D
+	node.scale = Vector3.ONE * scale_by
+	node.rotation.y = rng.randf() * TAU
+	node.position = at
+	var m: StandardMaterial3D = _stone_mats[rng.randi() % _stone_mats.size()]
+	for mi: MeshInstance3D in node.find_children("*", "MeshInstance3D", true, false):
+		mi.material_override = m
+	add_child(node)
+	return node
+
+
+## Boulders on the land around the playfield (decor "boulders").
+func _outer_boulders() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 99
+	var size := Vector2(game.grid.size)
+	var placed := 0
+	while placed < int(_decor("boulders", 0)):
+		var p := Vector2(rng.randf_range(-5.0, size.x + 5.0), rng.randf_range(-4.0, size.y + 4.0))
+		if p.x > -1.2 and p.x < size.x + 1.2 and p.y > -1.2 and p.y < size.y + 1.2:
+			continue
+		var file: String = BOULDER_MODELS[rng.randi() % BOULDER_MODELS.size()]
+		_stone(file, Vector3(p.x, -PLATEAU, p.y), rng.randf_range(2.0, 3.5), rng)
+		placed += 1
 
 
 func _noise_texture() -> NoiseTexture2D:
@@ -400,7 +485,7 @@ func _trees() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 42
 	var size := Vector2(game.grid.size)
-	for i in 140:
+	for i in int(_decor("trees", 140)):
 		var p := Vector2(rng.randf_range(-8.0, size.x + 8.0), rng.randf_range(-6.0, size.y + 6.0))
 		if p.x > -1.6 and p.x < size.x + 1.6 and p.y > -1.6 and p.y < size.y + 1.6:
 			continue
@@ -418,12 +503,47 @@ func _scene(path: String) -> PackedScene:
 	return _scenes[path]
 
 
-## Ribbon along the creep path (mitred strip through the cell centres).
+## Ribbons along the creep paths, one per spawn. Where a path joins an earlier
+## one and walks the same cells from there to the goal, it stops at the join,
+## so shared stretches are drawn once.
 func _draw_path() -> void:
-	var path := game.grid.path()
+	var paths: Array = []
+	for i in _paths.size():
+		paths.append(game.grid.path(i))
+	var cuts := ribbon_cuts(paths)
+	for i in _paths.size():
+		var path: Array[Vector2i] = paths[i]
+		_paths[i].mesh = _ribbon(path.slice(0, cuts[i]))
+
+
+## How many cells of each path to draw: all of it, or up to and including the
+## first cell from which it follows an earlier path to the end.
+static func ribbon_cuts(paths: Array) -> Array[int]:
+	var cuts: Array[int] = []
+	for i in paths.size():
+		var path: Array[Vector2i] = paths[i]
+		var cut := path.size()
+		for j in path.size():
+			if _joins(path, j, paths.slice(0, i)):
+				cut = j + 1
+				break
+		cuts.append(cut)
+	return cuts
+
+
+## True if path from index j on is the rest of one of the earlier paths.
+static func _joins(path: Array[Vector2i], j: int, earlier: Array) -> bool:
+	for other: Array[Vector2i] in earlier:
+		var k := other.find(path[j])
+		if k >= 0 and other.slice(k) == path.slice(j):
+			return true
+	return false
+
+
+## Mitred strip through the cell centres of a path, or null if too short.
+func _ribbon(path: Array[Vector2i]) -> ArrayMesh:
 	if path.size() < 2:
-		_path.mesh = null
-		return
+		return null
 	var pts: Array[Vector2] = []
 	for c in path:
 		pts.append(Grid.center(c))
@@ -457,7 +577,7 @@ func _draw_path() -> void:
 	arrays[Mesh.ARRAY_INDEX] = idx
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	_path.mesh = mesh
+	return mesh
 
 
 ## Main colour of a tower kind (also used by the HUD buttons).

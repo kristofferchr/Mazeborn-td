@@ -14,6 +14,7 @@ signal targeting_pressed
 signal speed_pressed
 signal mute_pressed
 signal retry_pressed
+signal maps_pressed
 
 const MARGIN := 20.0
 const TAG_COLORS := {
@@ -113,7 +114,9 @@ func is_over_ui(pos: Vector2) -> bool:
 
 ## Updates the selection panel: the build menu on a free cell, or the selected
 ## tower's info with upgrade, targeting and sell.
-func show_selection(cell: Vector2i, has_selection: bool, build_kind: String) -> void:
+func show_selection(
+	cell: Vector2i, has_selection: bool, build_kind: String, buildable: bool
+) -> void:
 	_panel.visible = has_selection
 	if not has_selection:
 		return
@@ -131,7 +134,7 @@ func show_selection(cell: Vector2i, has_selection: bool, build_kind: String) -> 
 			card.modulate = Color.WHITE if afford else Color(1, 1, 1, 0.5)
 			var price: Label = _kind_prices[kind]
 			price.add_theme_color_override("font_color", UiStyle.GOLD if afford else UiStyle.DANGER)
-		_build_button.disabled = not game.can_build(cell, build_kind)
+		_build_button.disabled = not buildable
 	else:
 		_info_title.text = tower.display_name()
 		_info_stats.text = _describe(tower.kind, tower.stats())
@@ -333,7 +336,7 @@ func _next_row(g: Dictionary) -> HBoxContainer:
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	spacer.custom_minimum_size = Vector2(16, 0)
 	row.add_child(spacer)
-	row.add_child(UiStyle.label("%d HP" % int(g.hp), 22, UiStyle.MUTED))
+	row.add_child(UiStyle.label("%d HP" % roundi(game.creep_hp(g)), 22, UiStyle.MUTED))
 	return row
 
 
@@ -551,11 +554,18 @@ func _build_end_screen() -> void:
 	var gap := Control.new()
 	gap.custom_minimum_size = Vector2(0, 10)
 	box.add_child(gap)
+	var buttons := HBoxContainer.new()
+	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
+	buttons.add_theme_constant_override("separation", 16)
+	box.add_child(buttons)
+	var maps := _button("Velg kart", "secondary", func() -> void: maps_pressed.emit())
+	maps.custom_minimum_size = Vector2(240, 96)
+	maps.add_theme_font_size_override("font_size", 30)
+	buttons.add_child(maps)
 	var retry := _button("Prøv igjen", "primary", func() -> void: retry_pressed.emit())
-	retry.custom_minimum_size = Vector2(340, 96)
+	retry.custom_minimum_size = Vector2(300, 96)
 	retry.add_theme_font_size_override("font_size", 34)
-	retry.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	box.add_child(retry)
+	buttons.add_child(retry)
 	_root.add_child(_end)
 
 
@@ -634,25 +644,9 @@ func _thumb(kind: String, level: int, element: String) -> Texture2D:
 # --- Layout and drawing --------------------------------------------------------
 
 
-## Safe-area insets (notch, home indicator) in canvas units.
-func _safe_insets() -> Dictionary:
-	var vp := get_viewport().get_visible_rect().size
-	var win := Vector2(DisplayServer.window_get_size())
-	var safe := Rect2(DisplayServer.get_display_safe_area())
-	var out := {"left": 0.0, "top": 0.0, "right": 0.0, "bottom": 0.0}
-	if win.x <= 0 or win.y <= 0 or safe.size.x <= 0 or safe.size.y <= 0:
-		return out
-	var k := vp / win
-	out.left = maxf(safe.position.x, 0.0) * k.x
-	out.top = maxf(safe.position.y, 0.0) * k.y
-	out.right = maxf(win.x - safe.end.x, 0.0) * k.x
-	out.bottom = maxf(win.y - safe.end.y, 0.0) * k.y
-	return out
-
-
 func _layout() -> void:
 	var vp := get_viewport().get_visible_rect().size
-	var inset := _safe_insets()
+	var inset := UiStyle.safe_insets(get_viewport())
 	var left: float = MARGIN + inset.left
 	var right: float = vp.x - MARGIN - inset.right
 	var top: float = MARGIN + inset.top
@@ -753,8 +747,8 @@ func _on_game_over(won: bool) -> void:
 	_next.visible = false
 	_end.visible = true
 	_end_stats.text = (
-		"Bølge %d av %d   ·   %d liv   ·   %d gull"
-		% [game.wave, game.waves.size(), game.lives, game.gold]
+		"%s   ·   Bølge %d av %d   ·   %d liv   ·   %d gull"
+		% [game.map.get("name", "Kart"), game.wave, game.waves.size(), game.lives, game.gold]
 	)
 	if won:
 		_end_title.text = "Seier!"
