@@ -94,6 +94,11 @@ func can_hit(creep: Creep) -> bool:
 	return hits_air if creep.flying else hits_ground
 
 
+## True if the tower lets all towers target invisible creeps in its range.
+func reveals() -> bool:
+	return bool(stats().get("reveal", false))
+
+
 func in_range(creep: Creep) -> bool:
 	return Grid.center(cell).distance_to(creep.pos) <= attack_range()
 
@@ -104,11 +109,12 @@ func pick_target(creeps: Array[Creep]) -> Creep:
 	return targets[0] if not targets.is_empty() else null
 
 
-## Up to n targets in range, best first by the targeting mode.
+## Up to n targets in range, best first by the targeting mode. Invisible
+## creeps count only while revealed.
 func pick_targets(creeps: Array[Creep], n: int) -> Array[Creep]:
 	var scored: Array = []
 	for c in creeps:
-		if not c.alive() or not can_hit(c) or not in_range(c):
+		if not c.alive() or not can_hit(c) or not c.targetable() or not in_range(c):
 			continue
 		var score: float
 		if targeting == Targeting.FIRST:

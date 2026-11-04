@@ -258,6 +258,8 @@ func _describe(kind: String, s: Dictionary) -> String:
 		parts.append("%d mål" % int(s.multishot))
 	if s.get("armor_pierce", false):
 		parts.append("gjennom rustning")
+	if s.get("reveal", false):
+		parts.append("avslører usynlige")
 	var targets: Array = game.tower_defs[kind].get("targets", ["ground"])
 	if "air" in targets and "ground" in targets:
 		parts.append("bakke og luft")
