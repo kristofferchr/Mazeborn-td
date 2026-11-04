@@ -1,0 +1,17 @@
+{
+	"name": "Tvillingportene",
+	"description": "To portaler sender fiender annenhver gang. Mazen må fange begge strømmene.",
+	"order": 3,
+	"size": [20, 11],
+	"spawns": [[0, 2], [0, 8]],
+	"goal": [19, 5],
+	"blocked": [
+		[0, 4, 3, 3],
+		[10, 0, 1, 2],
+		[10, 9, 1, 2],
+		[13, 4, 2, 3],
+		[18, 0, 2, 2],
+		[18, 9, 2, 2]
+	],
+	"decor": {"style": "mountain", "trees": 140}
+}

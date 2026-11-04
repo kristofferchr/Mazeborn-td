@@ -1,0 +1,10 @@
+{
+	"name": "Engen",
+	"description": "Åpen eng uten hindringer. Hele mazen er din egen.",
+	"order": 1,
+	"size": [18, 12],
+	"spawns": [[0, 5]],
+	"goal": [17, 6],
+	"blocked": [],
+	"decor": {"trees": 140}
+}

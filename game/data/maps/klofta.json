@@ -1,0 +1,17 @@
+{
+	"name": "Kløfta",
+	"description": "Lang og trang kløft med fjellnabber. Lite plass å bygge på, og fiendene her er litt seigere.",
+	"order": 2,
+	"size": [24, 9],
+	"spawns": [[0, 4]],
+	"goal": [23, 4],
+	"blocked": [
+		[0, 0, 24, 1],
+		[0, 8, 24, 1],
+		[1, 7], [4, 1, 2, 1], [10, 7, 2, 1], [16, 1], [20, 7, 2, 1], [22, 1],
+		[12, 1, 2, 4],
+		[18, 4, 2, 4]
+	],
+	"rules": {"hp_scale": 1.1},
+	"decor": {"style": "mountain", "trees": 110}
+}

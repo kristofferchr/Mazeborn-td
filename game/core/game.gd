@@ -5,8 +5,10 @@ extends RefCounted
 ## be simulated deterministically in tests. The 3D view only reads this state
 ## and listens to the signals.
 ##
-## Config: start_gold, lives, wave_bonus, early_bonus and waves (data/waves.json),
-## towers (data/towers.json) and creeps (data/creeps.json).
+## Config: start_gold, lives, wave_bonus, early_bonus, interest_rate,
+## interest_max and waves (data/waves.json), towers (data/towers.json), creeps
+## (data/creeps.json) and hp_scale (creep health, a map rule). The board comes
+## from a map (data/maps/, see Maps); creeps take turns between its spawns.
 
 signal gold_changed(gold: int)
 signal lives_changed(lives: int)
@@ -33,6 +35,7 @@ const TOWERS_FILE := "res://data/towers.json"
 const CREEPS_FILE := "res://data/creeps.json"
 
 var grid: Grid
+var map: Dictionary = {}  # the map definition (data/maps/), {} for a custom grid
 var phase := Phase.BUILD
 var gold: int
 var lives: int
@@ -49,6 +52,7 @@ var towers: Dictionary = {}  # Vector2i -> Tower
 var projectiles: Array[Projectile] = []
 var interest_rate: float  # share of unspent gold paid when a wave is cleared
 var interest_max: int
+var hp_scale: float  # creep health multiplier (a map rule, 1.0 by default)
 var ticks := 0
 var rng := RandomNumberGenerator.new()
 
@@ -56,6 +60,7 @@ var _accumulator := 0.0
 var _queue: Array[Dictionary] = []  # groups left to spawn: {group, left}
 var _spawn_timer := 0.0
 var _next_creep_id := 1
+var _spawned := 0  # ground and air creeps spawned so far (picks the spawn)
 var _next_projectile_id := 1
 
 
@@ -68,6 +73,7 @@ func _init(config: Dictionary, p_grid: Grid, seed_value := 1) -> void:
 	early_bonus = int(config.get("early_bonus", 0))
 	interest_rate = float(config.get("interest_rate", 0.0))
 	interest_max = int(config.get("interest_max", 0))
+	hp_scale = float(config.get("hp_scale", 1.0))
 	tower_defs = config.towers.towers
 	refund_rate = float(config.towers.refund)
 	for kind: Variant in config.towers.get("order", tower_defs.keys()):
@@ -77,9 +83,20 @@ func _init(config: Dictionary, p_grid: Grid, seed_value := 1) -> void:
 		waves.append(w)
 
 
-## Standard map (spawn left, goal right) with the data in data/.
+## The default map (Engen: spawn left, goal right) with the data in data/.
 static func create_default(seed_value := 1) -> Game:
-	return Game.new(default_config(), default_grid(), seed_value)
+	return create_map(Maps.DEFAULT, seed_value)
+
+
+## A round on the map with this id (data/maps/<id>.json). The map's "rules"
+## override the shared config (start gold, lives ...).
+static func create_map(map_id: String, seed_value := 1) -> Game:
+	var m := Maps.load_map(map_id)
+	var config := default_config()
+	config.merge(m.get("rules", {}), true)
+	var g := Game.new(config, Maps.grid(m), seed_value)
+	g.map = m
+	return g
 
 
 static func default_config() -> Dictionary:
@@ -90,7 +107,7 @@ static func default_config() -> Dictionary:
 
 
 static func default_grid() -> Grid:
-	return Grid.new(Vector2i(18, 12), Vector2i(0, 5), Vector2i(17, 6))
+	return Maps.grid(Maps.load_map(Maps.DEFAULT))
 
 
 static func load_json(res_path: String) -> Dictionary:
@@ -313,20 +330,27 @@ func _spawn() -> void:
 	var kind := str(g.get("creep", "normal"))
 	var def := _creep_def(kind)
 	var speed := float(g.get("speed", def.get("speed", 1.7)))
-	var creep := Creep.new(_next_creep_id, float(g.hp), speed, int(g.bounty), grid.spawn, kind)
+	var from := spawn_for(_spawned)
+	var creep := Creep.new(_next_creep_id, float(g.hp) * hp_scale, speed, int(g.bounty), from, kind)
 	creep.armor = int(g.get("armor", def.get("armor", 0)))
 	creep.flying = bool(def.get("flying", false))
 	_next_creep_id += 1
+	_spawned += 1
 	if creep.flying:
 		creep.set_path([grid.goal])
 	else:
-		creep.set_path(grid.path())
+		creep.set_path(grid.path_from(from))
 	creeps.append(creep)
 	entry.left -= 1
 	if entry.left <= 0:
 		_queue.remove_at(0)
 	_spawn_timer += float(g.interval)
 	creep_spawned.emit(creep)
+
+
+## Spawn of the n-th creep of the round (0-based): the spawns take turns.
+func spawn_for(n: int) -> Vector2i:
+	return grid.spawns[n % grid.spawns.size()]
 
 
 func _tick_effects() -> void:
