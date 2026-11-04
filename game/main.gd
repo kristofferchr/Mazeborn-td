@@ -54,6 +54,8 @@ func _ready() -> void:
 	hud.set_muted(audio.muted)
 	hud.mute_pressed.connect(audio.toggle_muted)
 	audio.muted_changed.connect(hud.set_muted)
+	game.creep_leaked.connect(func(c: Creep) -> void: camera.shake(_shake_for(c, true)))
+	game.creep_killed.connect(func(c: Creep) -> void: camera.shake(_shake_for(c, false)))
 
 
 func _process(delta: float) -> void:
@@ -127,6 +129,13 @@ func _on_tap(pos: Vector2) -> void:
 		_build_selected()
 	else:
 		_select(cell)
+
+
+## Camera shake for a creep that leaked or died: every leak, and a boss death.
+func _shake_for(creep: Creep, leaked: bool) -> float:
+	if creep.kind == "boss":
+		return 0.6
+	return 0.3 if leaked else 0.0
 
 
 func _select(cell: Vector2i) -> void:
