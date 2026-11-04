@@ -1,6 +1,6 @@
 {
 	"name": "Kløfta",
-	"description": "Lang og trang kløft med fjellnabber. Lite plass å bygge på, og fiendene her er litt seigere.",
+	"description": "Lang og trang kløft med fjellnabber. Lite plass å bygge på.",
 	"order": 2,
 	"size": [24, 9],
 	"spawns": [[0, 4]],

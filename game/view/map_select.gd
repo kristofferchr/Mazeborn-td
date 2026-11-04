@@ -127,7 +127,24 @@ func _layout() -> void:
 	for card: Button in _cards.values():
 		card.custom_minimum_size = Vector2(w, h)
 		var preview := card.find_child("Preview", true, false) as Control
-		preview.custom_minimum_size.y = clampf(h * 0.42, 90.0, 170.0)
+		preview.custom_minimum_size.y = clampf(h * 0.38, 90.0, 170.0)
+	_place()
+	_fit_cards.call_deferred()
+
+
+## Makes every card tall enough for its wrapped text (known after layout).
+func _fit_cards() -> void:
+	var need := 0.0
+	for card: Button in _cards.values():
+		var box := card.get_child(0) as Control
+		need = maxf(need, box.get_combined_minimum_size().y + 34.0)
+	for card: Button in _cards.values():
+		card.custom_minimum_size.y = maxf(card.custom_minimum_size.y, need)
+	_place()
+
+
+func _place() -> void:
+	var vp := get_viewport_rect().size
 	_grid.reset_size()
 	var top := MARGIN * 0.8
 	_title.position = Vector2(MARGIN, top)
