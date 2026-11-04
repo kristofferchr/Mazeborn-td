@@ -17,6 +17,7 @@ var game: Game
 var board: BoardView
 var camera: CameraRig
 var hud: Hud
+var audio: GameAudio
 var speed := 1.0
 var selected := NO_CELL
 var build_kind := "arrow"  # tower kind chosen in the build menu
@@ -53,6 +54,15 @@ func _ready() -> void:
 	hud.retry_pressed.connect(_retry)
 	hud.maps_pressed.connect(_choose_map)
 	game.game_over.connect(func(_won: bool) -> void: _select(NO_CELL))
+
+	audio = GameAudio.new()
+	add_child(audio)
+	audio.setup(game)
+	hud.set_muted(audio.muted)
+	hud.mute_pressed.connect(audio.toggle_muted)
+	audio.muted_changed.connect(hud.set_muted)
+	game.creep_leaked.connect(func(c: Creep) -> void: camera.shake(_shake_for(c, true)))
+	game.creep_killed.connect(func(c: Creep) -> void: camera.shake(_shake_for(c, false)))
 
 
 ## Restarts the map: the app (main.gd) makes a new round; on its own the scene
@@ -147,6 +157,13 @@ func _on_tap(pos: Vector2) -> void:
 		_build_selected()
 	else:
 		_select(cell)
+
+
+## Camera shake for a creep that leaked or died: every leak, and a boss death.
+func _shake_for(creep: Creep, leaked: bool) -> float:
+	if creep.kind == "boss":
+		return 0.6
+	return 0.3 if leaked else 0.0
 
 
 func _select(cell: Vector2i) -> void:

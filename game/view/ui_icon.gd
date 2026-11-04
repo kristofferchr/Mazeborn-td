@@ -1,6 +1,7 @@
 class_name UiIcon
 extends Control
-## Small vector icons drawn in code (no image files): dot, coin, heart, flag, speed.
+## Small vector icons drawn in code (no image files): dot, coin, heart, flag,
+## speed, sound and sound_off.
 
 var kind := "coin"
 var color := Color.WHITE
@@ -66,3 +67,32 @@ func _draw() -> void:
 					),
 					color
 				)
+		"sound", "sound_off":
+			_draw_speaker(c, s)
+
+
+## A speaker with sound waves, or crossed out with an x.
+func _draw_speaker(c: Vector2, s: float) -> void:
+	var x := c.x - s * 0.34
+	draw_rect(Rect2(x, c.y - s * 0.12, s * 0.16, s * 0.24), color)
+	draw_colored_polygon(
+		PackedVector2Array(
+			[
+				Vector2(x + s * 0.12, c.y - s * 0.12),
+				Vector2(x + s * 0.36, c.y - s * 0.32),
+				Vector2(x + s * 0.36, c.y + s * 0.32),
+				Vector2(x + s * 0.12, c.y + s * 0.12),
+			]
+		),
+		color
+	)
+	var w := maxf(s * 0.07, 1.5)
+	var o := Vector2(x + s * 0.42, c.y)
+	if kind == "sound":
+		for r: float in [s * 0.14, s * 0.27]:
+			draw_arc(o, r, -PI * 0.3, PI * 0.3, 12, color, w, true)
+	else:
+		var a := Vector2(o.x + s * 0.06, c.y - s * 0.14)
+		var d := s * 0.26
+		draw_line(a, a + Vector2(d, d), color, w, true)
+		draw_line(a + Vector2(0, d), a + Vector2(d, 0), color, w, true)
