@@ -87,9 +87,11 @@ var _spawned := 0  # ground and air creeps spawned so far (picks the spawn)
 var _next_projectile_id := 1
 
 
-func _init(config: Dictionary, p_grid: Grid, seed_value := 1) -> void:
+func _init(config: Dictionary, p_grid: Grid, p_seed := 1, p_options := {}) -> void:
 	grid = p_grid
-	rng.seed = seed_value
+	rng.seed = p_seed
+	options = p_options.duplicate(true) if p_options is Dictionary else {}
+	difficulty = str(options.get("difficulty", Difficulty.DEFAULT))
 	gold = int(config.start_gold)
 	lives = int(config.lives)
 	start_lives = lives
@@ -109,28 +111,27 @@ func _init(config: Dictionary, p_grid: Grid, seed_value := 1) -> void:
 
 
 ## The default map (Engen: spawn left, goal right) with the data in data/.
-static func create_default(seed_value := 1) -> Game:
-	return create_map(Maps.DEFAULT, seed_value)
+static func create_default(p_seed := 1, p_options := {}) -> Game:
+	return create_map(Maps.DEFAULT, p_seed, p_options)
 
 
 ## A round on the map with this id (data/maps/<id>.json). The map's "rules"
 ## override the shared config (start gold, lives ...), then the difficulty in
-## options ("difficulty": an id from data/difficulty.json, default "normal")
-## scales it. Every option is kept in Game.options, also unknown ones.
-static func create_map(map_id: String, seed_value := 1, p_options := {}) -> Game:
+## the options ("difficulty": an id from data/difficulty.json, default
+## "normal") scales it. `p_options` are the round options; every key is kept in
+## Game.options, also ones this class does not know ("mode" ...).
+static func create_map(map_id: String, p_seed := 1, p_options := {}) -> Game:
 	var m := Maps.load_map(map_id)
 	var config := default_config()
 	config.merge(m.get("rules", {}), true)
-	var opts: Dictionary = p_options.duplicate(true)
+	var opts: Dictionary = p_options.duplicate(true) if p_options is Dictionary else {}
 	var level := str(opts.get("difficulty", Difficulty.DEFAULT))
 	if not Difficulty.exists(level):
 		level = Difficulty.DEFAULT
 	opts.difficulty = level
 	Difficulty.apply(config, level)
-	var g := Game.new(config, Maps.grid(m), seed_value)
+	var g := Game.new(config, Maps.grid(m), p_seed, opts)
 	g.map = m
-	g.difficulty = level
-	g.options = opts
 	return g
 
 

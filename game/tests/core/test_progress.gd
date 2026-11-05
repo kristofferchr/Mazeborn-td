@@ -7,11 +7,11 @@ var t: Object  # test runner (check/eq)
 
 
 func _won(lives: int, stars: int) -> Dictionary:
-	return {"won": true, "lives": lives, "wave": 12, "waves": 12, "stars": stars}
+	return {"won": true, "lives": lives, "wave": 12, "waves": 12, "stars": stars, "mode": "classic"}
 
 
 func _lost(wave: int, lives := 0) -> Dictionary:
-	return {"won": false, "lives": lives, "wave": wave, "waves": 12, "stars": 0}
+	return {"won": false, "lives": lives, "wave": wave, "waves": 12, "stars": 0, "mode": "classic"}
 
 
 func _clean_up() -> void:
@@ -103,4 +103,40 @@ func test_hand_edited_file_is_cleaned() -> void:
 	t.eq(p.best("engen", "normal").stars, 3, "stars clamped")
 	t.eq(p.best("engen", "normal").lives, 7, "lives as a number")
 	t.eq(p.best("engen", "hard"), {}, "not a result")
+	_clean_up()
+
+
+func _endless(wave: int) -> Dictionary:
+	return {"won": false, "lives": 0, "wave": wave, "waves": 0, "stars": 0, "mode": "endless"}
+
+
+func test_endless_results() -> void:
+	t.eq(Progress.mode_of({"mode": "endless"}), "endless", "endless mode")
+	t.eq(Progress.mode_of({"difficulty": "hard"}), "classic", "classic by default")
+	var g := Game.create_map("engen", 1, {"mode": "endless"})
+	g.wave = 23
+	g.lives = 0
+	g.phase = Game.Phase.LOST
+	t.eq(Progress.result_of(g), _endless(23), "endless result: the wave reached")
+	t.check(Progress.is_new_record({}, _endless(5)), "a first endless round is a record")
+	t.check(Progress.is_new_record(_endless(20), _endless(31)), "further")
+	t.check(not Progress.is_new_record(_endless(31), _endless(20)), "not as far")
+
+
+func test_endless_is_kept_apart_from_classic() -> void:
+	_clean_up()
+	var p := Progress.new(TEMP)
+	t.check(p.record("engen", "hard", _won(15, 2)), "classic win")
+	t.check(p.record("engen", "hard", _endless(40)), "endless round")
+	t.eq(p.best("engen", "hard").wave, 12, "classic best")
+	t.eq(p.best("engen", "hard", "endless").wave, 40, "endless best")
+	t.eq(p.stars("engen", "hard"), 2, "stars come from classic")
+	t.check(not p.record("engen", "hard", _endless(30)), "worse endless round")
+	p.save()
+	var q := Progress.open(TEMP)
+	t.eq(q.best("engen", "hard", "endless"), _endless(40), "endless after load")
+	t.eq(q.best("engen", "hard"), _won(15, 2), "classic after load")
+	var cfg := ConfigFile.new()
+	cfg.load(TEMP)
+	t.check(cfg.has_section_key("engen", "hard_endless"), "endless key in the file")
 	_clean_up()
