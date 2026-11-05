@@ -1,30 +1,57 @@
 class_name MapSelect
 extends Control
-## Map select before a round: a card per map (schematic, name, description and
-## chips) and a "Spill" button for the chosen one. Look: UiStyle.
+## Map select before a round: a difficulty selector, a card per map (schematic,
+## name, chips, description and the best result on the chosen difficulty and
+## mode, with stars), "Tilbake", a mode selector (Klassisk / Endeløs) and a
+## "Spill" button for the chosen map. Look: UiStyle.
+## Drawn over the MenuBackdrop with a translucent shade (opaque on its own).
 
-signal play_pressed(map_id: String)
+## options for Game.create_map: {"difficulty": id, "mode": "classic"|"endless"}.
+signal play_pressed(map_id: String, options: Dictionary)
+signal back_pressed
 
 const MARGIN := 40.0
 const GAP := 22
 
 var selected := Maps.DEFAULT
+var difficulty := Difficulty.DEFAULT
+var endless := false  # play the endless mode
+var progress: Progress
+var opaque := false  # draw the backdrop fully (no 3D behind)
 
 var _cards: Dictionary = {}  # map id -> Button
 var _grid: GridContainer
 var _play: Button
+var _back_button: Button
 var _title: Label
 var _subtitle: Label
+var _levels: Segmented
+var _level_text: Label
+var _modes: Segmented
 var _back: Texture2D
 
 
 func _ready() -> void:
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	theme = UiStyle.theme()
+	if progress == null:
+		progress = Progress.open()
+	if not Difficulty.exists(difficulty):
+		difficulty = Difficulty.DEFAULT
 	_build()
 	get_viewport().size_changed.connect(_layout)
 	_select(selected if _cards.has(selected) else Maps.DEFAULT)
+	_set_difficulty(difficulty)
 	_layout()
+
+
+## Options for the chosen difficulty and mode, as sent with play_pressed.
+func options() -> Dictionary:
+	return {"difficulty": difficulty, "mode": Progress.ENDLESS if endless else Progress.CLASSIC}
+
+
+func _mode() -> String:
+	return Progress.ENDLESS if endless else Progress.CLASSIC
 
 
 func _build() -> void:
@@ -33,6 +60,24 @@ func _build() -> void:
 	add_child(_title)
 	_subtitle = UiStyle.label("Mazeborn TD  ·  bygg mazen, hold fienden ute", 22, UiStyle.MUTED)
 	add_child(_subtitle)
+
+	var names: Array[String] = []
+	for id in Difficulty.ids():
+		names.append(Difficulty.display_name(id))
+	_levels = Segmented.make(names, Difficulty.ids().find(difficulty), 24, 68)
+	_levels.changed.connect(func(i: int) -> void: _set_difficulty(Difficulty.ids()[i]))
+	add_child(_levels)
+	_level_text = UiStyle.label("", 20, UiStyle.MUTED)
+	_level_text.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	add_child(_level_text)
+	var modes: Array[String] = ["Klassisk", "∞  Endeløs"]
+	_modes = Segmented.make(modes, 1 if endless else 0, 26, 96)
+	_modes.changed.connect(
+		func(i: int) -> void:
+			endless = i == 1
+			_show_results()
+	)
+	add_child(_modes)
 
 	_grid = GridContainer.new()
 	_grid.add_theme_constant_override("h_separation", GAP)
@@ -43,13 +88,22 @@ func _build() -> void:
 		_grid.add_child(card)
 		_cards[id] = card
 
+	_back_button = Button.new()
+	_back_button.text = "Tilbake"
+	_back_button.focus_mode = Control.FOCUS_NONE
+	_back_button.custom_minimum_size = Vector2(220, 96)
+	_back_button.add_theme_font_size_override("font_size", 30)
+	UiStyle.style_button(_back_button, "secondary")
+	_back_button.pressed.connect(func() -> void: back_pressed.emit())
+	add_child(_back_button)
+
 	_play = Button.new()
 	_play.text = "Spill"
 	_play.focus_mode = Control.FOCUS_NONE
 	_play.custom_minimum_size = Vector2(320, 96)
 	_play.add_theme_font_size_override("font_size", 38)
 	UiStyle.style_button(_play, "primary")
-	_play.pressed.connect(func() -> void: play_pressed.emit(selected))
+	_play.pressed.connect(func() -> void: play_pressed.emit(selected, options()))
 	add_child(_play)
 
 
@@ -88,8 +142,7 @@ func _card(m: Dictionary) -> Button:
 	var preview := MapPreview.make(grid, Vector2(0, 150))
 	preview.name = "Preview"
 	box.add_child(preview)
-	var title := UiStyle.label(str(m.name), 30, UiStyle.TEXT, true)
-	box.add_child(title)
+	box.add_child(UiStyle.label(str(m.name), 30, UiStyle.TEXT, true))
 	var chips := HFlowContainer.new()
 	chips.add_theme_constant_override("h_separation", 8)
 	chips.add_theme_constant_override("v_separation", 6)
@@ -105,7 +158,33 @@ func _card(m: Dictionary) -> Button:
 	text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	text.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	box.add_child(text)
+	# The best result on the chosen difficulty: stars and a line of text.
+	var result := HBoxContainer.new()
+	result.add_theme_constant_override("separation", 12)
+	result.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var stars := UiStyle.stars(0, 28)
+	stars.name = "Stars"
+	stars.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	result.add_child(stars)
+	var best := UiStyle.label("", 18, UiStyle.MUTED, true)
+	best.name = "Best"
+	best.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	best.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	best.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	result.add_child(best)
+	box.add_child(result)
 	return card
+
+
+## Text for the best result on a map: "Beste: seier, 14 liv igjen" ...
+static func best_text(best: Dictionary) -> String:
+	if best.is_empty():
+		return "Ikke spilt ennå"
+	if bool(best.won):
+		return "Beste: seier, %d liv igjen" % int(best.lives)
+	if int(best.get("waves", 0)) <= 0:
+		return "Beste: bølge %d" % int(best.wave)  # endless
+	return "Beste: bølge %d av %d" % [int(best.wave), int(best.waves)]
 
 
 func _select(id: String) -> void:
@@ -116,6 +195,29 @@ func _select(id: String) -> void:
 		_play.text = "Spill  %s" % Maps.load_map(id).name
 
 
+func _set_difficulty(id: String) -> void:
+	difficulty = id
+	_levels.select(Difficulty.ids().find(id))
+	_level_text.text = str(Difficulty.level(id).get("description", ""))
+	_show_results()
+
+
+## Stars (classic) and the best result on every card for the chosen difficulty
+## and mode.
+func _show_results() -> void:
+	for map_id: String in _cards:
+		var card := _cards[map_id] as Button
+		var best := progress.best(map_id, difficulty, _mode())
+		var stars := card.find_child("Stars", true, false) as HBoxContainer
+		UiStyle.set_stars(stars, progress.stars(map_id, difficulty))
+		stars.visible = not endless
+		var label := card.find_child("Best", true, false) as Label
+		label.text = best_text(best)
+		var good := bool(best.get("won", false)) or (endless and not best.is_empty())
+		label.add_theme_color_override("font_color", UiStyle.GOLD if good else UiStyle.MUTED)
+	_place()
+
+
 ## Cards in one row on wide screens and in two on narrower ones, sized to fit
 ## inside the safe area.
 func _layout() -> void:
@@ -124,11 +226,11 @@ func _layout() -> void:
 	_grid.columns = cols
 	var rows := ceili(_cards.size() / float(cols))
 	var w := clampf((area.size.x - GAP * (cols - 1)) / cols, 240.0, 560.0)
-	var h := clampf((area.size.y - 230.0 - GAP * (rows - 1)) / rows, 220.0, 420.0)
+	var h := clampf((area.size.y - 250.0 - GAP * (rows - 1)) / rows, 220.0, 440.0)
 	for card: Button in _cards.values():
 		card.custom_minimum_size = Vector2(w, h)
 		var preview := card.find_child("Preview", true, false) as Control
-		preview.custom_minimum_size.y = clampf(h * 0.38, 90.0, 170.0)
+		preview.custom_minimum_size.y = clampf(h * 0.36, 90.0, 170.0)
 	_place()
 	_fit_cards.call_deferred()
 
@@ -145,17 +247,37 @@ func _fit_cards() -> void:
 
 
 func _place() -> void:
+	if _grid == null:
+		return
 	var area := _area()
 	_grid.reset_size()
 	_title.position = area.position
 	_subtitle.position = area.position + Vector2(2, 68)
-	var grid_top := area.position.y + 116.0
+	_levels.reset_size()
+	_levels.position = Vector2(area.end.x - _levels.size.x, area.position.y + 4.0)
+	_level_text.reset_size()
+	_level_text.position = Vector2(
+		area.end.x - _level_text.size.x - 8.0, _levels.position.y + _levels.size.y + 8.0
+	)
+	# On narrow screens the selector goes under the title.
+	var title_end := area.position.x + maxf(_title.size.x, _subtitle.size.x) + 32.0
+	var grid_top := area.position.y + 126.0
+	if _levels.position.x < title_end:
+		_levels.position = Vector2(area.position.x, area.position.y + 112.0)
+		_level_text.position = Vector2(
+			_levels.position.x + _levels.size.x + 18.0,
+			_levels.position.y + (_levels.size.y - _level_text.size.y) / 2.0
+		)
+		grid_top = _levels.position.y + _levels.size.y + 24.0
 	_grid.position = Vector2(area.get_center().x - _grid.size.x / 2.0, grid_top)
 	_play.size = _play.custom_minimum_size
 	_play.reset_size()
-	_play.position = Vector2(
-		area.end.x - _play.size.x, minf(grid_top + _grid.size.y + 26.0, area.end.y - _play.size.y)
-	)
+	var buttons_y := minf(grid_top + _grid.size.y + 26.0, area.end.y - _play.size.y)
+	_play.position = Vector2(area.end.x - _play.size.x, buttons_y)
+	_back_button.reset_size()
+	_back_button.position = Vector2(area.position.x, buttons_y)
+	_modes.reset_size()
+	_modes.position = Vector2(_play.position.x - 22.0 - _modes.size.x, buttons_y)
 	queue_redraw()
 
 
@@ -172,8 +294,10 @@ func _area() -> Rect2:
 
 func _draw() -> void:
 	var vp := get_viewport_rect().size
-	draw_rect(Rect2(Vector2.ZERO, vp), Color(0.03, 0.05, 0.07))
-	draw_texture_rect(_back, Rect2(Vector2.ZERO, vp), false)
+	var a := 1.0 if opaque else 0.82
+	if opaque:
+		draw_rect(Rect2(Vector2.ZERO, vp), Color(0.03, 0.05, 0.07))
+	draw_texture_rect(_back, Rect2(Vector2.ZERO, vp), false, Color(1, 1, 1, a))
 
 
 ## Dark backdrop with a soft green glow in the middle.
