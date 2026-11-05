@@ -1,18 +1,25 @@
 class_name Round
 extends Node3D
 ## One round on a map: runs the core Game with a fixed time step and wires the
-## 3D view, the camera and the HUD to it. Set map_id before adding it to the
-## tree (default: the default map, so the scene also runs on its own).
+## 3D view, the camera and the HUD to it. Set map_id and options (for
+## Game.create_map, e.g. {"difficulty": "hard"}) before adding it to the tree
+## (default: the default map on Normal, so the scene also runs on its own).
 ## Touch: tap a cell to preview, tap again (or "Bygg") to build the kind chosen
 ## in the menu, tap a tower to upgrade or sell; drag to pan, pinch to zoom.
+## The pause button (or Esc, or the app going to the background) pauses the
+## tree; the pause menu and settings keep working. The result of a finished
+## round is kept in the progress file (Progress).
 
-signal retry_requested  # "Prøv igjen": the same map again
-signal maps_requested  # "Velg kart": back to the map select
+signal retry_requested  # "Prøv igjen" / "Start på nytt": the same map again
+signal maps_requested  # "Velg kart" / "Avslutt til kart": back to the map select
 
 const TAP_SLOP := 14.0  # pixels a finger may move and still count as a tap
 const NO_CELL := Vector2i(-1, -1)
 
 var map_id := Maps.DEFAULT
+var options: Dictionary = {}  # passed on to Game.create_map, unknown keys too
+var progress_path := Progress.PATH  # where results are kept ("" to keep none)
+var paused := false
 var game: Game
 var board: BoardView
 var camera: CameraRig
@@ -28,8 +35,9 @@ var _tap_valid := false
 
 
 func _ready() -> void:
-	game = Game.create_map(map_id, int(Time.get_unix_time_from_system()))
-	_build_environment()
+	game = Game.create_map(map_id, int(Time.get_unix_time_from_system()), options)
+	speed = float(UserSettings.open().speed)
+	add_environment(self)
 
 	board = BoardView.new()
 	add_child(board)
@@ -53,7 +61,10 @@ func _ready() -> void:
 	hud.speed_pressed.connect(_toggle_speed)
 	hud.retry_pressed.connect(_retry)
 	hud.maps_pressed.connect(_choose_map)
-	game.game_over.connect(func(_won: bool) -> void: _select(NO_CELL))
+	hud.pause_pressed.connect(set_paused.bind(true))
+	hud.resume_pressed.connect(set_paused.bind(false))
+	hud.set_speed_text("%dx" % int(speed))
+	game.game_over.connect(_on_game_over)
 
 	audio = GameAudio.new()
 	add_child(audio)
@@ -65,9 +76,47 @@ func _ready() -> void:
 	game.creep_killed.connect(func(c: Creep) -> void: camera.shake(_shake_for(c, false)))
 
 
+func _exit_tree() -> void:
+	if paused:
+		get_tree().paused = false
+
+
+## Pauses the round: the simulation, the 3D view and the HUD stop (the tree is
+## paused), the pause menu opens and the music ducks.
+func set_paused(on: bool) -> void:
+	if on == paused or (on and game.is_over()):
+		return
+	paused = on
+	get_tree().paused = on
+	_touches.clear()
+	_tap_valid = false
+	hud.show_paused(on)
+	audio.set_ducked(on)
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_PAUSED and game and not game.is_over():
+		set_paused(true)  # the app went to the background (mobile)
+
+
+## Keeps the result in the progress file and shows the stars and any record.
+func _on_game_over(_won: bool) -> void:
+	_select(NO_CELL)
+	var result := Progress.result_of(game)
+	var record := false
+	if progress_path != "":
+		var progress := Progress.open(progress_path)
+		var previous := progress.best(map_id, game.difficulty, str(result.mode))
+		record = Progress.is_new_record(previous, result)
+		if progress.record(map_id, game.difficulty, result):
+			progress.save()
+	hud.show_result(int(result.stars), record)
+
+
 ## Restarts the map: the app (main.gd) makes a new round; on its own the scene
 ## reloads.
 func _retry() -> void:
+	set_paused(false)
 	if retry_requested.get_connections().is_empty():
 		get_tree().reload_current_scene()
 	else:
@@ -75,6 +124,7 @@ func _retry() -> void:
 
 
 func _choose_map() -> void:
+	set_paused(false)
 	if maps_requested.get_connections().is_empty():
 		get_tree().change_scene_to_file("res://main.tscn")
 	else:
@@ -94,6 +144,10 @@ func _process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("ui_cancel") and not game.is_over():
+		get_viewport().set_input_as_handled()
+		set_paused(true)
+		return
 	if event is InputEventScreenTouch:
 		var e := event as InputEventScreenTouch
 		if e.pressed:
@@ -195,16 +249,18 @@ func _toggle_speed() -> void:
 	hud.set_speed_text("%dx" % int(speed))
 
 
-func _build_environment() -> void:
-	# Warm late-afternoon sun with soft shadows, cool sky fill light.
+## Warm late-afternoon sun with soft shadows, cool sky fill light, filmic tone
+## mapping and a little glow, added to `parent`. `cheap` leaves out the shadows
+## and the glow (behind the menus).
+static func add_environment(parent: Node, cheap := false) -> void:
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-50.0, 40.0, 0.0)
 	sun.light_color = Color(1.0, 0.94, 0.84)
 	sun.light_energy = 1.25
-	sun.shadow_enabled = true
+	sun.shadow_enabled = not cheap
 	sun.shadow_blur = 1.5
 	sun.directional_shadow_max_distance = 45.0
-	add_child(sun)
+	parent.add_child(sun)
 
 	var e := Environment.new()
 	e.background_mode = Environment.BG_COLOR
@@ -215,7 +271,7 @@ func _build_environment() -> void:
 	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	e.tonemap_exposure = 1.05
 	e.tonemap_white = 6.0
-	e.glow_enabled = true
+	e.glow_enabled = not cheap
 	e.glow_intensity = 0.6
 	e.glow_bloom = 0.05
 	e.glow_hdr_threshold = 0.9
@@ -224,4 +280,4 @@ func _build_environment() -> void:
 	e.adjustment_contrast = 1.05
 	var env := WorldEnvironment.new()
 	env.environment = e
-	add_child(env)
+	parent.add_child(env)

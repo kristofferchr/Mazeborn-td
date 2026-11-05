@@ -1,0 +1,33 @@
+{
+	"default": "normal",
+	"order": ["easy", "normal", "hard", "extreme"],
+	"levels": {
+		"easy": {
+			"name": "Lett",
+			"description": "Svakere fiender, mer gull og flere liv.",
+			"hp_scale": 0.8,
+			"start_gold_scale": 1.25,
+			"lives_scale": 1.5,
+			"bounty_scale": 1.15
+		},
+		"normal": {
+			"name": "Normal",
+			"description": "Slik spillet er ment å spilles."
+		},
+		"hard": {
+			"name": "Vanskelig",
+			"description": "Seigere fiender og færre liv.",
+			"hp_scale": 1.06,
+			"lives_scale": 0.75
+		},
+		"extreme": {
+			"name": "Ekstrem",
+			"description": "For erfarne mazebyggere. Hvert liv teller.",
+			"hp_scale": 1.18,
+			"start_gold_scale": 0.9,
+			"lives_scale": 0.5,
+			"bounty_scale": 0.9,
+			"interest_scale": 0.5
+		}
+	}
+}
