@@ -2,7 +2,8 @@ class_name SettingsPanel
 extends Overlay
 ## Settings over the title screen or the pause menu: music and sound-effect
 ## volume (heard at once) and the default game speed for new rounds. Saved in
-## user://settings.cfg (UserSettings) when closed.
+## user://settings.cfg (UserSettings) when a slider is let go, when closed and
+## when the app goes away with the panel open.
 
 signal closed
 
@@ -26,6 +27,8 @@ func _init() -> void:
 	_sfx_value = _sfx.get_meta("value")
 	_music.value_changed.connect(_on_volume)
 	_sfx.value_changed.connect(_on_volume)
+	for s: HSlider in [_music, _sfx]:
+		s.drag_ended.connect(func(_changed: bool) -> void: settings.save())
 	box.add_child(_gap(4))
 	var speed_row := HBoxContainer.new()
 	speed_row.add_theme_constant_override("separation", 20)
@@ -65,6 +68,13 @@ func close() -> void:
 	settings.save()
 	super()
 	closed.emit()
+
+
+## Keeps the volumes when the app goes away with the panel open.
+func _notification(what: int) -> void:
+	var leaving := what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_WM_CLOSE_REQUEST
+	if leaving and visible and settings:
+		settings.save()
 
 
 func _on_volume(_value: float) -> void:

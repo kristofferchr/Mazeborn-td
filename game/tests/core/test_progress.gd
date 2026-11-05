@@ -15,8 +15,42 @@ func _lost(wave: int, lives := 0) -> Dictionary:
 
 
 func _clean_up() -> void:
-	if FileAccess.file_exists(TEMP):
-		DirAccess.remove_absolute(ProjectSettings.globalize_path(TEMP))
+	for p: String in [TEMP, TEMP + ".bak", TEMP + ".tmp"]:
+		if FileAccess.file_exists(p):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(p))
+
+
+func test_corrupt_file_is_kept_and_not_lost() -> void:
+	_clean_up()
+	var garbage := '[engen]\nnormal={"won": true, "lives": 1'
+	var f := FileAccess.open(TEMP, FileAccess.WRITE)
+	f.store_string(garbage)
+	f.close()
+	var p := Progress.new(TEMP)
+	t.check(p.load_file() not in [OK, ERR_FILE_NOT_FOUND], "the file does not load")
+	t.eq(p.best("engen", "normal"), {}, "nothing read from it")
+	t.check(FileAccess.file_exists(TEMP + ".bak"), "kept as .bak")
+	t.eq(FileAccess.get_file_as_string(TEMP + ".bak"), garbage, "the .bak holds the old file")
+	t.check(p.record("klofta", "normal", _won(12, 2)), "a new result")
+	t.eq(p.save(), OK, "saved")
+	t.eq(Progress.open(TEMP).best("klofta", "normal"), _won(12, 2), "the new file loads")
+	t.eq(FileAccess.get_file_as_string(TEMP + ".bak"), garbage, "the .bak is untouched")
+	t.check(not FileAccess.file_exists(TEMP + ".tmp"), "no temp file left")
+	t.eq(Progress.new(TEMP + ".missing").load_file(), ERR_FILE_NOT_FOUND, "a missing file")
+	t.check(not FileAccess.file_exists(TEMP + ".missing.bak"), "no .bak for a missing file")
+	_clean_up()
+
+
+func test_save_replaces_the_file_atomically() -> void:
+	_clean_up()
+	var p := Progress.new(TEMP)
+	p.record("engen", "normal", _lost(4))
+	p.save()
+	p.record("engen", "normal", _lost(8))
+	t.eq(p.save(), OK, "saved over the old file")
+	t.eq(Progress.open(TEMP).best("engen", "normal").wave, 8, "the newest result")
+	t.check(not FileAccess.file_exists(TEMP + ".tmp"), "no temp file left")
+	_clean_up()
 
 
 func test_star_rules() -> void:

@@ -2,8 +2,9 @@ class_name UserSettings
 extends RefCounted
 ## The player's settings in user://settings.cfg: mute, music and sound-effect
 ## volume (0..1), the default game speed (1x or 2x) and the last map,
-## difficulty and mode chosen in the menu. save() writes these keys and keeps any other
-## key in the file.
+## difficulty and mode chosen in the menu. save() writes these keys and keeps
+## any other key in the file. Saves are atomic and an unreadable file is kept
+## as settings.cfg.bak (SafeConfig).
 
 const PATH := "user://settings.cfg"
 const SPEEDS: Array[int] = [1, 2]
@@ -30,7 +31,7 @@ static func open(p_path := PATH) -> UserSettings:
 
 func load_file() -> void:
 	var cfg := ConfigFile.new()
-	if cfg.load(path) != OK:
+	if SafeConfig.load_into(cfg, path) != OK:
 		return
 	muted = bool(cfg.get_value("audio", "muted", muted))
 	music_volume = clampf(float(cfg.get_value("audio", "music_volume", music_volume)), 0.0, 1.0)
@@ -46,7 +47,7 @@ func load_file() -> void:
 
 func save() -> Error:
 	var cfg := ConfigFile.new()
-	cfg.load(path)  # keep keys this class does not know
+	SafeConfig.load_into(cfg, path)  # keep keys this class does not know
 	cfg.set_value("audio", "muted", muted)
 	cfg.set_value("audio", "music_volume", music_volume)
 	cfg.set_value("audio", "sfx_volume", sfx_volume)
@@ -54,7 +55,7 @@ func save() -> Error:
 	cfg.set_value("menu", "difficulty", difficulty)
 	cfg.set_value("menu", "map", map_id)
 	cfg.set_value("menu", "mode", mode)
-	return cfg.save(path)
+	return SafeConfig.save(cfg, path)
 
 
 ## Bus volume in dB for a slider value 0..1 (squared, so the slider feels even).

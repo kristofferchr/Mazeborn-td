@@ -10,7 +10,8 @@ extends RefCounted
 ## left (10 of 20 on Normal), 3 for a win without a single leak. A loss, and
 ## any endless round (it is never won), gives none; there the wave reached
 ## counts. The rules and the comparison are pure; only load_file() and save()
-## touch a file.
+## touch a file (through SafeConfig: atomic saves, an unreadable file is kept
+## as progress.cfg.bak).
 
 const PATH := "user://progress.cfg"
 const MAX_STARS := 3
@@ -122,7 +123,7 @@ func record(map_id: String, difficulty: String, result: Dictionary) -> bool:
 func load_file() -> Error:
 	_best.clear()
 	var cfg := ConfigFile.new()
-	var err := cfg.load(path)
+	var err := SafeConfig.load_into(cfg, path)  # an unreadable file is kept as .bak
 	if err != OK:
 		return err
 	for map_id in cfg.get_sections():
@@ -142,7 +143,7 @@ func save() -> Error:
 		var parts := key.split("|")
 		var name := parts[1] if parts[2] == CLASSIC else "%s_%s" % [parts[1], ENDLESS]
 		cfg.set_value(parts[0], name, _best[key])
-	return cfg.save(path)
+	return SafeConfig.save(cfg, path)
 
 
 static func _key(map_id: String, difficulty: String, mode: String) -> String:
