@@ -254,4 +254,56 @@ func test_endless_round_ends_when_lives_run_out() -> void:
 		g.start_wave()
 		g.run_wave()
 	t.eq(g.phase, Game.Phase.LOST, "lost without towers")
-	t.eq(g.score(), g.wave, "score")
+	t.eq(g.score(), 0, "no wave cleared")
+
+
+func test_score_counts_cleared_waves_not_waves_sent_early() -> void:
+	var config: Dictionary = _base._config([_base._wave(2, 10)])
+	config.endless = {"hp": 10, "count": [2, 2], "kinds": ["normal"], "boss_every": 0}
+	var grid := Grid.new(Vector2i(7, 3), Vector2i(0, 1), Vector2i(6, 1))
+	var g := Game.new(config, grid, 1, {"mode": "endless"})
+	g.tower_base_stats("stone").damage_min = 100000
+	g.tower_base_stats("stone").damage_max = 100000
+	g.tower_base_stats("stone").range = 9.0
+	g.build(Vector2i(3, 0))
+	for i in 3:
+		g.start_wave()
+		g.run_wave()
+	t.eq(g.score(), 3, "three waves cleared")
+	g.sell(Vector2i(3, 0))
+	g.lives = 3
+	g.start_wave()
+	while g.phase == Game.Phase.WAVE:
+		g.step()
+		g.start_wave()  # keep sending early while losing
+	t.eq(g.phase, Game.Phase.LOST, "lost")
+	t.check(g.wave > 4, "several waves sent early (wave %d)" % g.wave)
+	t.eq(g.score(), 3, "the score stays at the last cleared wave")
+
+
+func test_far_endless_waves_stay_positive_and_capped() -> void:
+	var g := _endless_game()
+	var last := 0.0
+	for n: int in [100, 330, 400, 1000, 5000]:
+		for grp in Game.wave_groups(g.wave_data(n)):
+			t.check(int(grp.hp) > 0, "wave %d hp %d" % [n, grp.hp])
+			t.check(int(grp.hp) <= int(Game.ENDLESS_HP_CAP), "wave %d hp capped" % n)
+			t.check(int(grp.bounty) > 0, "wave %d bounty %d" % [n, grp.bounty])
+		var hp := float(Game.wave_groups(g.wave_data(n))[0].hp)
+		t.check(hp >= last, "hp never falls (wave %d)" % n)
+		last = hp
+
+
+func test_endless_boss_summons_grow_with_the_wave() -> void:
+	var g := _endless_game()
+	var hp: Array[int] = []
+	for n: int in [20, 30]:  # the big boss (it summons)
+		for grp in Game.wave_groups(g.wave_data(n)):
+			if str(grp.creep) == "boss":
+				hp.append(int(grp.abilities.summon.hp))
+	t.eq(hp.size(), 2, "both boss waves summon")
+	t.check(hp[1] > hp[0], "summons are tougher later: %s" % [hp])
+	t.check(hp[0] > 140, "more than the scripted boss summons: %s" % [hp])
+	var boss := g.new_creep("boss", 1000.0, 1, Game.wave_groups(g.wave_data(20))[1], Vector2i(0, 1))
+	t.eq(int(boss.abilities.summon.hp), hp[0], "the creep gets the override")
+	t.eq(int(boss.abilities.summon.count), 2, "other summon parameters kept")

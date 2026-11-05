@@ -50,5 +50,5 @@ DEMO_STATE=countdown scripts/screenshot.sh shot.png res://tools/demo.tscn 30 253
 scripts/make_sfx.py                   # lager alle lydeffekter og musikken i game/assets/audio/
 scripts/godot.sh --headless --path game -s res://tools/balance.gd   # bot spiller alle kartene
 scripts/godot.sh --headless --path game -s res://tools/balance.gd -- klofta 7  # ett kart, seed 7
-scripts/godot.sh --headless --path game -s res://tools/balance.gd -- all 3 endless  # endeløs (eller wait: boten venter på nedtellingen)
+scripts/godot.sh --headless --path game -s res://tools/balance.gd -- all 3 endless  # endeløs (modus: wait er standard, early sender tidlig, endless-early)
 ```

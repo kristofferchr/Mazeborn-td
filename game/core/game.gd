@@ -53,6 +53,8 @@ const DT := 1.0 / 30.0  # fixed simulation step in seconds
 const WAVES_FILE := "res://data/waves.json"
 const TOWERS_FILE := "res://data/towers.json"
 const CREEPS_FILE := "res://data/creeps.json"
+const ENDLESS_HP_CAP := 1e15  # creep health of far endless waves stops growing here
+const ENDLESS_BOUNTY_CAP := 1e9
 ## Tag in the next-wave card for an ability a wave group adds to its creeps.
 const ABILITY_TAGS := {
 	"heal": "Helbreder",
@@ -68,6 +70,7 @@ var phase := Phase.BUILD
 var gold: int
 var lives: int
 var wave := 0  # number of the last started wave (1-based)
+var cleared := 0  # number of the last wave cleared (all its creeps gone)
 var waves: Array[Dictionary] = []
 var tower_defs: Dictionary  # kind -> definition with levels
 var tower_order: Array[String] = []
@@ -383,9 +386,10 @@ func is_final_wave(number: int) -> bool:
 	return not endless and number >= waves.size()
 
 
-## The score of an endless round: the wave reached.
+## The score of an endless round: the last wave cleared (sending waves early
+## does not raise it).
 func score() -> int:
-	return wave
+	return cleared
 
 
 ## Groups of a wave; a wave without "groups" is one group.
@@ -476,8 +480,14 @@ func endless_wave(number: int) -> Dictionary:
 	var k := number - waves.size()  # 1 for the first generated wave
 	var r := RandomNumberGenerator.new()
 	r.seed = hash("endless:%d:%d" % [seed_value, number])
-	var hp := float(ec.get("hp", 700.0)) * pow(float(ec.get("hp_growth", 1.12)), k - 1)
-	var bounty := float(ec.get("bounty", 9.0)) * pow(float(ec.get("bounty_growth", 1.05)), k - 1)
+	# Capped so far waves stay well inside the int range of the data.
+	var hp := minf(
+		float(ec.get("hp", 700.0)) * pow(float(ec.get("hp_growth", 1.12)), k - 1), ENDLESS_HP_CAP
+	)
+	var bounty := minf(
+		float(ec.get("bounty", 9.0)) * pow(float(ec.get("bounty_growth", 1.05)), k - 1),
+		ENDLESS_BOUNTY_CAP
+	)
 	var kind_hp: Dictionary = ec.get("kind_hp", {})
 	var count_range: Array = ec.get("count", [10, 16])
 	var main := _endless_kinds[(k - 1) % _endless_kinds.size()]
@@ -489,8 +499,12 @@ func endless_wave(number: int) -> Dictionary:
 	if boss_every > 0 and number % boss_every == 0 and not boss_kinds.is_empty():
 		var boss_kind := str(boss_kinds[(number / boss_every) % boss_kinds.size()])
 		var boss := _endless_group(boss_kind, 1, hp * float(ec.get("boss_hp", 16.0)), bounty, r)
-		boss.bounty = roundi(bounty * float(ec.get("boss_bounty", 15.0)))
+		boss.bounty = roundi(minf(bounty * float(ec.get("boss_bounty", 15.0)), ENDLESS_BOUNTY_CAP))
 		boss.interval = 1.5
+		# Summons grow with the wave instead of keeping their flat health.
+		if _creep_def(boss_kind).get("abilities", {}).has("summon"):
+			var summon_hp := roundi(hp * float(ec.get("summon_hp", 0.25)))
+			boss.abilities = {"summon": {"hp": summon_hp}}
 		groups.append(_endless_group(main, int(ec.get("escort", 6)), hp, bounty, r, kind_hp))
 		groups.append(boss)
 	else:
@@ -525,7 +539,7 @@ func _endless_group(
 	var g := {
 		"creep": kind,
 		"count": count,
-		"hp": roundi(hp * float(kind_hp.get(kind, 1.0))),
+		"hp": roundi(minf(hp * float(kind_hp.get(kind, 1.0)), ENDLESS_HP_CAP)),
 		"interval": 0.5 if fast else 0.8,
 		"bounty": maxi(roundi(bounty), 1),
 	}
@@ -872,6 +886,7 @@ func _check_wave_end() -> void:
 	if interest > 0:
 		_add_gold(interest)
 		gold_bonus.emit(interest, "interest")
+	cleared = wave
 	wave_cleared.emit(wave)
 	if is_final_wave(wave):
 		phase = Phase.WON

@@ -142,11 +142,20 @@ func test_maze_plan_skips_rocks_and_keeps_paths() -> void:
 			t.check(g.build(cell), "%s plan cell %s can be built in order" % [id, cell])
 
 
+## Both bots: one that lets every countdown run out (no early gold) and one
+## that sends each wave as soon as it has built.
 func test_bot_wins_every_map() -> void:
 	for id in MAP_IDS:
-		var game := Game.create_map(id, 3)
-		var won := Bot.new(game).play()
-		t.check(won, "bot wins %s (wave %d, lives %d)" % [id, game.wave, game.lives])
+		for send_early: bool in [false, true]:
+			var game := Game.create_map(id, 3)
+			var won := Bot.new(game, send_early).play()
+			t.check(
+				won,
+				(
+					"bot (send early %s) wins %s (wave %d, lives %d)"
+					% [send_early, id, game.wave, game.lives]
+				)
+			)
 
 
 func test_split_children_follow_their_parent_from_the_second_spawn() -> void:

@@ -3,9 +3,10 @@ extends SceneTree
 ## prints each wave. For balancing.
 ## Usage: scripts/godot.sh --headless --path game -s res://tools/balance.gd
 ##   [-- map|all [seed [mode]]]
-## Modes: "classic" (the bot sends each wave early), "wait" (classic, the bot
-## lets the countdown run out) and "endless" (until the bot loses, at most
-## MAX_ENDLESS waves).
+## Modes: "wait" (default: classic, the bot lets each countdown run out),
+## "early" (classic, the bot sends each wave as soon as it has built, for the
+## early gold), "endless" and "endless-early" (endless with either bot, until
+## it loses, at most MAX_ENDLESS waves).
 
 const MAX_ENDLESS := 150
 
@@ -14,7 +15,7 @@ func _initialize() -> void:
 	var args := OS.get_cmdline_user_args()
 	var which := args[0] if args.size() > 0 else "all"
 	var seed_value := int(args[1]) if args.size() > 1 else 3
-	var mode := args[2] if args.size() > 2 else "classic"
+	var mode := args[2] if args.size() > 2 else "wait"
 	var ids := Maps.ids()
 	if which != "all":
 		ids = [which] as Array[String]
@@ -26,10 +27,10 @@ func _initialize() -> void:
 
 
 func _play(id: String, seed_value: int, mode: String) -> String:
-	var endless := mode == "endless"
+	var endless := mode.begins_with("endless")
 	var g := Game.create_map(id, seed_value, {"mode": "endless" if endless else "classic"})
 	print("== %s (%s) %s" % [g.map.get("name", id), id, mode])
-	var bot := Bot.new(g, mode != "wait")
+	var bot := Bot.new(g, mode.ends_with("early"))
 	var leaked_kinds := {}  # kind -> count in the wave just played
 	var count_leak := func(c: Creep) -> void: leaked_kinds[c.kind] = 1 + leaked_kinds.get(c.kind, 0)
 	g.creep_leaked.connect(count_leak)
@@ -57,8 +58,8 @@ func _play(id: String, seed_value: int, mode: String) -> String:
 	g.creep_leaked.disconnect(count_leak)
 	print(_board(g))
 	var result := (
-		"%-16s %-7s %-4s wave %3d lives %2d early gold %3d"
-		% [id, mode, Game.Phase.keys()[g.phase], g.wave, g.lives, bot.early_gold]
+		"%-16s %-13s %-4s wave %3d cleared %3d lives %2d early gold %3d"
+		% [id, mode, Game.Phase.keys()[g.phase], g.wave, g.score(), g.lives, bot.early_gold]
 	)
 	print("result: ", result)
 	return result

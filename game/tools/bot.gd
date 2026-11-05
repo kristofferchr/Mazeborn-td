@@ -13,11 +13,11 @@ var plan: Array[Vector2i]
 var leaked_by_wave := {}  # wave number -> creeps that got through
 ## Send each wave as soon as the bot has built (for the early gold) instead of
 ## letting the countdown run out.
-var send_early := true
+var send_early := false
 var early_gold := 0  # gold earned by sending early
 
 
-func _init(p_game: Game, p_send_early := true) -> void:
+func _init(p_game: Game, p_send_early := false) -> void:
 	game = p_game
 	send_early = p_send_early
 	plan = MazePlan.serpentine(game.grid)

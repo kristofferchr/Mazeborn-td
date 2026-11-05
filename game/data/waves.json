@@ -29,6 +29,7 @@
 		"boss_kinds": ["boss", "miniboss"],
 		"boss_hp": 16,
 		"boss_bounty": 15,
+		"summon_hp": 0.25,
 		"escort": 6
 	},
 	"waves": [
