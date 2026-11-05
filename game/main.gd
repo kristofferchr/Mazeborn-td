@@ -1,11 +1,14 @@
 extends Node
 ## The app: the title screen, then the map select (with the difficulty), then
-## a round on the chosen map (round.tscn). Both menus sit over a slowly
-## circling 3D map (MenuBackdrop). "Prøv igjen" starts the same map and options
-## again; "Velg kart" and "Avslutt til kart" go back to the map select. The
-## last map, difficulty and mode are kept in the settings (UserSettings).
+## a round on the chosen map (round.tscn). The title screen sits over a slowly
+## circling 3D map (MenuBackdrop), which is paused and hidden behind the map
+## select and freed during a round. Menus run at MENU_FPS. "Prøv igjen" starts
+## the same map and options again; "Velg kart" and "Avslutt til kart" go back
+## to the map select. The last map, difficulty and mode are kept in the
+## settings (UserSettings).
 
 const ROUND := preload("res://round.tscn")
+const MENU_FPS := 30
 
 var backdrop: MenuBackdrop
 var title: TitleScreen
@@ -17,9 +20,19 @@ func _ready() -> void:
 	show_title()
 
 
+func _exit_tree() -> void:
+	Engine.max_fps = 0
+
+
 func show_title() -> void:
 	_clear()
-	_ensure_backdrop()
+	Engine.max_fps = MENU_FPS
+	if not is_instance_valid(backdrop):
+		backdrop = MenuBackdrop.new()
+		backdrop.map_id = UserSettings.open().map_id
+		add_child(backdrop)
+		move_child(backdrop, 0)
+	backdrop.set_active(true)
 	title = TitleScreen.new()
 	title.play_pressed.connect(show_menu, CONNECT_DEFERRED)
 	add_child(title)
@@ -27,7 +40,9 @@ func show_title() -> void:
 
 func show_menu() -> void:
 	_clear()
-	_ensure_backdrop()
+	Engine.max_fps = MENU_FPS
+	if is_instance_valid(backdrop):
+		backdrop.set_active(false)  # the map select covers it
 	var settings := UserSettings.open()
 	menu = MapSelect.new()
 	menu.selected = settings.map_id
@@ -49,20 +64,13 @@ func play(map_id: String, options: Dictionary = {}) -> void:
 	_clear()
 	_free(backdrop)
 	backdrop = null
+	Engine.max_fps = 0
 	current_round = ROUND.instantiate() as Round
 	current_round.map_id = map_id
 	current_round.options = options.duplicate(true)
 	current_round.retry_requested.connect(play.bind(map_id, options), CONNECT_DEFERRED)
 	current_round.maps_requested.connect(show_menu, CONNECT_DEFERRED)
 	add_child(current_round)
-
-
-func _ensure_backdrop() -> void:
-	if not is_instance_valid(backdrop):
-		backdrop = MenuBackdrop.new()
-		backdrop.map_id = UserSettings.open().map_id
-		add_child(backdrop)
-		move_child(backdrop, 0)
 
 
 func _clear() -> void:

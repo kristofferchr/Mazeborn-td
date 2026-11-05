@@ -3,7 +3,8 @@ extends Node3D
 ## Behind the menus: a map with a finished maze and creeps walking through it,
 ## seen by a camera that slowly circles it. The game runs with endless lives
 ## and loops over the first waves. No sound and no input. Same lighting as a
-## round (Round.add_environment).
+## round (Round.add_environment), without shadows and glow. The app pauses and
+## hides it behind the map select (set_active).
 
 const ORBIT_SPEED := 0.045  # radians per second
 const LOOP_WAVES := 6  # waves shown before starting over
@@ -22,7 +23,7 @@ func _ready() -> void:
 	game = Game.create_map(map_id, 7)
 	game.lives = 1 << 30
 	game.gold = 1 << 20
-	Round.add_environment(self)
+	Round.add_environment(self, true)  # no shadows or glow: cheap behind a menu
 	board = BoardView.new()
 	add_child(board)
 	board.setup(game)
@@ -43,6 +44,14 @@ func _ready() -> void:
 	add_child(camera)
 	camera.make_current()
 	_place_camera()
+
+
+## Runs and shows the backdrop, or pauses and hides it (when a menu covers it).
+func set_active(on: bool) -> void:
+	visible = on
+	process_mode = Node.PROCESS_MODE_INHERIT if on else Node.PROCESS_MODE_DISABLED
+	if on and camera:
+		camera.make_current()
 
 
 func _process(delta: float) -> void:

@@ -10,10 +10,11 @@ func test_map_select_options() -> void:
 	t.eq(menu.options(), {"difficulty": "normal", "mode": "classic"}, "defaults")
 	menu.difficulty = "extreme"
 	menu.endless = true
-	t.eq(menu.options(), {"difficulty": "extreme", "mode": "endless"}, "chosen")
+	var mode := "endless" if MapSelect.SHOW_MODE else "classic"  # hidden: always classic
+	t.eq(menu.options(), {"difficulty": "extreme", "mode": mode}, "chosen")
 	var g := Game.create_map("engen", 1, menu.options())
 	t.eq(g.difficulty, "extreme", "the round gets the difficulty")
-	t.eq(g.options.mode, "endless", "and the mode")
+	t.eq(g.options.mode, mode, "and the mode")
 	menu.free()
 
 

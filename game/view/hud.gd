@@ -177,21 +177,23 @@ func is_menu_open() -> bool:
 	return _pause_menu.visible or _settings.visible
 
 
+## "Bølge 6 av 12", or "Bølge 31" in the endless mode (no last wave).
+static func wave_text(g: Game) -> String:
+	if Progress.mode_of(g.options) == Progress.ENDLESS:
+		return "Bølge %d" % g.wave
+	return "Bølge %d av %d" % [g.wave, g.waves.size()]
+
+
 ## Opens or closes the pause menu (the round pauses the game).
 func show_paused(on: bool) -> void:
 	_paused = on
 	if on:
-		_pause_menu.set_info(
-			(
-				"%s  ·  %s  ·  bølge %d av %d"
-				% [
-					game.map.get("name", "Kart"),
-					Difficulty.display_name(game.difficulty),
-					game.wave,
-					game.waves.size()
-				]
-			)
-		)
+		var parts: Array[String] = [
+			str(game.map.get("name", "Kart")),
+			Difficulty.display_name(game.difficulty),
+			wave_text(game).to_lower(),
+		]
+		_pause_menu.set_info("  ·  ".join(parts))
 		_pause_menu.open()
 	else:
 		_pause_menu.close()
@@ -851,17 +853,14 @@ func _on_game_over(won: bool) -> void:
 	_end.visible = true
 	_pause.visible = false
 	show_paused(false)
-	_end_stats.text = (
-		"%s   ·   %s   ·   Bølge %d av %d   ·   %d liv   ·   %d gull"
-		% [
-			game.map.get("name", "Kart"),
-			Difficulty.display_name(game.difficulty),
-			game.wave,
-			game.waves.size(),
-			game.lives,
-			game.gold
-		]
-	)
+	var parts: Array[String] = [
+		str(game.map.get("name", "Kart")),
+		Difficulty.display_name(game.difficulty),
+		wave_text(game),
+		"%d liv" % game.lives,
+		"%d gull" % game.gold,
+	]
+	_end_stats.text = "   ·   ".join(parts)
 	if won:
 		_end_title.text = "Seier!"
 		_end_title.add_theme_color_override("font_color", UiStyle.ACCENT)

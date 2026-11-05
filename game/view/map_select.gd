@@ -4,7 +4,7 @@ extends Control
 ## name, chips, description and the best result on the chosen difficulty and
 ## mode, with stars), "Tilbake", a mode selector (Klassisk / Endeløs) and a
 ## "Spill" button for the chosen map. Look: UiStyle.
-## Drawn over the MenuBackdrop with a translucent shade (opaque on its own).
+## Drawn opaque (or with a translucent shade over a 3D scene, see opaque).
 
 ## options for Game.create_map: {"difficulty": id, "mode": "classic"|"endless"}.
 signal play_pressed(map_id: String, options: Dictionary)
@@ -12,12 +12,15 @@ signal back_pressed
 
 const MARGIN := 40.0
 const GAP := 22
+## The Klassisk/Endeløs selector. Off until the endless mode is in the core:
+## while hidden, the mode is always "classic".
+const SHOW_MODE := false
 
 var selected := Maps.DEFAULT
 var difficulty := Difficulty.DEFAULT
 var endless := false  # play the endless mode
 var progress: Progress
-var opaque := false  # draw the backdrop fully (no 3D behind)
+var opaque := true  # false: a translucent shade, so a 3D scene behind shows through
 
 var _cards: Dictionary = {}  # map id -> Button
 var _grid: GridContainer
@@ -48,11 +51,11 @@ func _ready() -> void:
 
 ## Options for the chosen difficulty and mode, as sent with play_pressed.
 func options() -> Dictionary:
-	return {"difficulty": difficulty, "mode": Progress.ENDLESS if endless else Progress.CLASSIC}
+	return {"difficulty": difficulty, "mode": _mode()}
 
 
 func _mode() -> String:
-	return Progress.ENDLESS if endless else Progress.CLASSIC
+	return Progress.ENDLESS if endless and SHOW_MODE else Progress.CLASSIC
 
 
 func _build() -> void:
@@ -78,6 +81,7 @@ func _build() -> void:
 			endless = i == 1
 			_show_results()
 	)
+	_modes.visible = SHOW_MODE
 	add_child(_modes)
 
 	_grid = GridContainer.new()
@@ -211,10 +215,12 @@ func _show_results() -> void:
 		var best := progress.best(map_id, difficulty, _mode())
 		var stars := card.find_child("Stars", true, false) as HBoxContainer
 		UiStyle.set_stars(stars, progress.stars(map_id, difficulty))
-		stars.visible = not endless
+		stars.visible = _mode() == Progress.CLASSIC
 		var label := card.find_child("Best", true, false) as Label
 		label.text = best_text(best)
-		var good := bool(best.get("won", false)) or (endless and not best.is_empty())
+		var good := (
+			bool(best.get("won", false)) or (_mode() == Progress.ENDLESS and not best.is_empty())
+		)
 		label.add_theme_color_override("font_color", UiStyle.GOLD if good else UiStyle.MUTED)
 	_place()
 

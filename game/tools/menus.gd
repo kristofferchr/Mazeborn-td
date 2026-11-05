@@ -24,7 +24,6 @@ func _ready() -> void:
 			if which == "title_settings":
 				title._open_settings()
 		"maps":
-			add_child(MenuBackdrop.new())
 			var menu := MapSelect.new()
 			menu.progress = progress
 			menu.selected = "klofta"

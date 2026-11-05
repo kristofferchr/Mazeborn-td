@@ -250,13 +250,14 @@ func _toggle_speed() -> void:
 
 
 ## Warm late-afternoon sun with soft shadows, cool sky fill light, filmic tone
-## mapping and a little glow, added to `parent` (also used behind the menus).
-static func add_environment(parent: Node) -> void:
+## mapping and a little glow, added to `parent`. `cheap` leaves out the shadows
+## and the glow (behind the menus).
+static func add_environment(parent: Node, cheap := false) -> void:
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-50.0, 40.0, 0.0)
 	sun.light_color = Color(1.0, 0.94, 0.84)
 	sun.light_energy = 1.25
-	sun.shadow_enabled = true
+	sun.shadow_enabled = not cheap
 	sun.shadow_blur = 1.5
 	sun.directional_shadow_max_distance = 45.0
 	parent.add_child(sun)
@@ -270,7 +271,7 @@ static func add_environment(parent: Node) -> void:
 	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	e.tonemap_exposure = 1.05
 	e.tonemap_white = 6.0
-	e.glow_enabled = true
+	e.glow_enabled = not cheap
 	e.glow_intensity = 0.6
 	e.glow_bloom = 0.05
 	e.glow_hdr_threshold = 0.9

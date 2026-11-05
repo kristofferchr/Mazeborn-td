@@ -77,7 +77,6 @@ func _open_settings() -> void:
 
 func _layout() -> void:
 	var vp := get_viewport_rect().size
-	size = vp
 	var inset := UiStyle.safe_insets(get_viewport())
 	# Smaller screens get a smaller title column.
 	var k := clampf(minf(vp.x / 1700.0, vp.y / 900.0), 0.6, 1.4)
