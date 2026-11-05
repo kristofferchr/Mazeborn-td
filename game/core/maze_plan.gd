@@ -1,10 +1,10 @@
 class_name MazePlan
 extends RefCounted
 ## A simple serpentine maze (walls of towers across the map with a gap at one
-## end), used by the balance bot and the screenshot demo. Works on any map:
-## rocks are skipped (they are part of the wall for free), cells that would cut
-## a spawn off are left open, and each wall puts its gap at the end that makes
-## the creeps walk the farthest from all spawns.
+## end), used by the menu backdrop, the balance bot and the screenshot demo.
+## Works on any map: rocks are skipped (they are part of the wall for free),
+## cells that would cut a spawn off are left open, and each wall puts its gap at
+## the end that makes the creeps walk the farthest from all spawns.
 
 const STEP := 3  # columns between walls
 
