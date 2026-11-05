@@ -1,7 +1,7 @@
 class_name UiIcon
 extends Control
 ## Small vector icons drawn in code (no image files): dot, coin, heart, flag,
-## speed, sound, sound_off, pause, play, star, star_empty and gear.
+## speed, sound, sound_off, pause, play, star and star_empty.
 
 var kind := "coin"
 var color := Color.WHITE
@@ -92,8 +92,6 @@ func _draw() -> void:
 			draw_colored_polygon(pts, Color(color, 0.18))
 			pts.append(pts[0])
 			draw_polyline(pts, Color(color, 0.55), maxf(s * 0.06, 1.5), true)
-		"gear":
-			_draw_gear(c, s)
 
 
 ## A five-pointed star around c with outer radius r (points up).
@@ -103,17 +101,6 @@ static func star_points(c: Vector2, r: float) -> PackedVector2Array:
 		var a := -PI / 2.0 + i * PI / 5.0
 		pts.append(c + Vector2(cos(a), sin(a)) * (r if i % 2 == 0 else r * 0.45))
 	return pts
-
-
-func _draw_gear(c: Vector2, s: float) -> void:
-	var pts := PackedVector2Array()
-	var teeth := 8
-	for i in teeth * 4:
-		var a := i * TAU / (teeth * 4)
-		var r := s * (0.44 if (i % 4) < 2 else 0.33)
-		pts.append(c + Vector2(cos(a), sin(a)) * r)
-	draw_colored_polygon(pts, color)
-	draw_circle(c, s * 0.14, Color(0.07, 0.09, 0.12))
 
 
 ## A speaker with sound waves, or crossed out with an x.

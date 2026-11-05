@@ -1,7 +1,8 @@
 extends SceneTree
 ## Lets the bot (tools/bot.gd) play a round on one map or on every map and
 ## prints each wave. For balancing. The difficulty is an id from
-## data/difficulty.json, or "all" for every level (default: normal).
+## data/difficulty.json, or "all" for every level (default: normal); it may
+## come anywhere after the seed, so other arguments can sit beside it.
 ## Usage: scripts/godot.sh --headless --path game -s res://tools/balance.gd
 ##   [-- map|all [seed [difficulty|all]]]
 
@@ -10,7 +11,10 @@ func _initialize() -> void:
 	var args := OS.get_cmdline_user_args()
 	var which := args[0] if args.size() > 0 else "all"
 	var seed_value := int(args[1]) if args.size() > 1 else 3
-	var level := args[2] if args.size() > 2 else Difficulty.DEFAULT
+	var level := Difficulty.DEFAULT
+	for a in args.slice(2):
+		if a == "all" or Difficulty.exists(a):
+			level = a
 	var ids := Maps.ids()
 	if which != "all":
 		ids = [which] as Array[String]

@@ -28,6 +28,7 @@ var _subtitle: Label
 var _levels: Segmented
 var _level_text: Label
 var _modes: Segmented
+var _grid_top := 0.0  # top of the cards, set by _place
 var _back: Texture2D
 
 
@@ -176,15 +177,15 @@ func _card(m: Dictionary) -> Button:
 	return card
 
 
-## Text for the best result on a map: "Beste: seier, 14 liv igjen" ...
+## Short text for the best result on a map: "Seier · 14 liv", "Bølge 9 av 12" ...
 static func best_text(best: Dictionary) -> String:
 	if best.is_empty():
 		return "Ikke spilt ennå"
 	if bool(best.won):
-		return "Beste: seier, %d liv igjen" % int(best.lives)
+		return "Seier · %d liv" % int(best.lives)
 	if int(best.get("waves", 0)) <= 0:
-		return "Beste: bølge %d" % int(best.wave)  # endless
-	return "Beste: bølge %d av %d" % [int(best.wave), int(best.waves)]
+		return "Rekord: bølge %d" % int(best.wave)  # endless
+	return "Bølge %d av %d" % [int(best.wave), int(best.waves)]
 
 
 func _select(id: String) -> void:
@@ -235,15 +236,30 @@ func _layout() -> void:
 	_fit_cards.call_deferred()
 
 
-## Makes every card tall enough for its wrapped text (known after layout).
+## Makes every card tall enough for its wrapped text (known after layout). If
+## the cards would then reach the buttons, the schematics get smaller.
 func _fit_cards() -> void:
+	var need := _card_need()
+	var rows := ceili(_cards.size() / float(_grid.columns))
+	var room := (_area().end.y - _play.size.y - 26.0 - _grid_top - GAP * (rows - 1)) / rows
+	if need > room:
+		for card: Button in _cards.values():
+			var preview := card.find_child("Preview", true, false) as Control
+			preview.custom_minimum_size.y = maxf(
+				preview.custom_minimum_size.y - (need - room), 56.0
+			)
+		need = _card_need()
+	for card: Button in _cards.values():
+		card.custom_minimum_size.y = clampf(card.custom_minimum_size.y, need, maxf(room, need))
+	_place()
+
+
+func _card_need() -> float:
 	var need := 0.0
 	for card: Button in _cards.values():
 		var box := card.get_child(0) as Control
 		need = maxf(need, box.get_combined_minimum_size().y + 34.0)
-	for card: Button in _cards.values():
-		card.custom_minimum_size.y = maxf(card.custom_minimum_size.y, need)
-	_place()
+	return need
 
 
 func _place() -> void:
@@ -269,6 +285,7 @@ func _place() -> void:
 			_levels.position.y + (_levels.size.y - _level_text.size.y) / 2.0
 		)
 		grid_top = _levels.position.y + _levels.size.y + 24.0
+	_grid_top = grid_top
 	_grid.position = Vector2(area.get_center().x - _grid.size.x / 2.0, grid_top)
 	_play.size = _play.custom_minimum_size
 	_play.reset_size()
