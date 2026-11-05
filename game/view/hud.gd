@@ -364,6 +364,8 @@ func _update_next_wave() -> void:
 	var w := game.next_wave()
 	if w.is_empty() or game.is_over():
 		_next.visible = false
+		if overview_open:
+			toggle_overview()  # nothing left to list
 		return
 	_next.visible = not overview_open
 	_next_title.text = "NESTE  ·  BØLGE %d" % (game.wave + 1)
@@ -382,7 +384,7 @@ func _update_next_wave() -> void:
 ## Opens or closes the overview of every wave left (the next-wave card is
 ## hidden while it is open).
 func toggle_overview() -> void:
-	overview_open = not overview_open and not game.is_over()
+	overview_open = not overview_open and not game.is_over() and not game.next_wave().is_empty()
 	_overview.visible = overview_open
 	if overview_open:
 		_overview.refresh(true)
@@ -778,8 +780,9 @@ func _layout() -> void:
 	_next.position = Vector2(right - _next.size.x, _start.position.y - 14.0 - _next.size.y)
 	var list_top := _fx.banner_top
 	var list_bottom := _start.position.y - 14.0
-	_overview.position = Vector2(right - OVERVIEW_WIDTH, list_top)
-	_overview.size = Vector2(OVERVIEW_WIDTH, maxf(list_bottom - list_top, 200.0))
+	var list_width := minf(OVERVIEW_WIDTH, vp.x * 0.32)
+	_overview.position = Vector2(right - list_width, list_top)
+	_overview.size = Vector2(list_width, maxf(list_bottom - list_top, 200.0))
 	_panel.reset_size()
 	_panel.position = Vector2(left, bottom - _panel.size.y)
 
@@ -875,7 +878,11 @@ func _on_game_over(won: bool) -> void:
 		)
 		_end_title.text = "Bølge %d" % game.score()
 		_end_title.add_theme_color_override("font_color", UiStyle.ACCENT)
-		_end_text.text = "Endeløs: mazen holdt til bølge %d." % game.score()
+		_end_text.text = (
+			"Endeløs: mazen holdt til og med bølge %d." % game.score()
+			if game.score() > 0
+			else "Endeløs: fiendene slapp gjennom på første bølge."
+		)
 	elif won:
 		_end_title.text = "Seier!"
 		_end_title.add_theme_color_override("font_color", UiStyle.ACCENT)
