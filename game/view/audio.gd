@@ -185,6 +185,13 @@ func _ready() -> void:
 		_on_node_added(b)
 
 
+## The duck lives on the shared music bus: never leave it down after a round.
+func _exit_tree() -> void:
+	if _duck_tween:
+		_duck_tween.kill()
+	_set_duck(0.0)
+
+
 func setup(p_game: Game) -> void:
 	_game = p_game
 	_game.tower_built.connect(func(_t: Tower) -> void: play_event("build"))

@@ -7,8 +7,26 @@ var t: Object  # test runner (check/eq)
 
 
 func _clean_up() -> void:
-	if FileAccess.file_exists(TEMP):
-		DirAccess.remove_absolute(ProjectSettings.globalize_path(TEMP))
+	for p: String in [TEMP, TEMP + ".bak", TEMP + ".tmp"]:
+		if FileAccess.file_exists(p):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(p))
+
+
+func test_corrupt_settings_are_kept_as_backup() -> void:
+	_clean_up()
+	var garbage := "[audio]\nmuted=tr[ue\nmusic_volume="
+	var f := FileAccess.open(TEMP, FileAccess.WRITE)
+	f.store_string(garbage)
+	f.close()
+	var s := UserSettings.open(TEMP)
+	t.eq(s.speed, 1, "defaults")
+	t.eq(FileAccess.get_file_as_string(TEMP + ".bak"), garbage, "kept as .bak")
+	s.speed = 2
+	t.eq(s.save(), OK, "saved")
+	t.eq(UserSettings.open(TEMP).speed, 2, "the new file loads")
+	t.eq(FileAccess.get_file_as_string(TEMP + ".bak"), garbage, "the .bak is untouched")
+	t.check(not FileAccess.file_exists(TEMP + ".tmp"), "no temp file left")
+	_clean_up()
 
 
 func test_defaults_without_a_file() -> void:
@@ -83,3 +101,20 @@ func test_audio_buses_follow_the_volumes() -> void:
 	)
 	t.eq(AudioServer.get_bus_volume_db(sfx), 0.0, "effects bus volume")
 	GameAudio.set_volumes(1.0, 1.0)
+
+
+func test_music_ducks_while_paused_and_comes_back_on_exit() -> void:
+	var audio := GameAudio.new()
+	(t as SceneTree).root.add_child(audio)
+	var music := GameAudio.bus(GameAudio.MUSIC_BUS)
+	var full := AudioServer.get_bus_volume_db(music)
+	audio.set_ducked(true, 0.0)
+	t.check(
+		is_equal_approx(AudioServer.get_bus_volume_db(music), full + GameAudio.DUCK_DB), "ducked"
+	)
+	audio.set_ducked(false, 0.0)
+	t.check(is_equal_approx(AudioServer.get_bus_volume_db(music), full), "back up")
+	audio.set_ducked(true, 0.5)  # mid-fade when the round is left
+	(t as SceneTree).root.remove_child(audio)
+	t.check(is_equal_approx(AudioServer.get_bus_volume_db(music), full), "not left ducked")
+	audio.free()
