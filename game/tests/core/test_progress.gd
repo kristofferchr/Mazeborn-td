@@ -148,10 +148,11 @@ func test_endless_results() -> void:
 	t.eq(Progress.mode_of({"mode": "endless"}), "endless", "endless mode")
 	t.eq(Progress.mode_of({"difficulty": "hard"}), "classic", "classic by default")
 	var g := Game.create_map("engen", 1, {"mode": "endless"})
-	g.wave = 23
+	g.wave = 25  # sent early while losing
+	g.cleared = 23
 	g.lives = 0
 	g.phase = Game.Phase.LOST
-	t.eq(Progress.result_of(g), _endless(23), "endless result: the wave reached")
+	t.eq(Progress.result_of(g), _endless(23), "endless result: the last wave cleared")
 	t.check(Progress.is_new_record({}, _endless(5)), "a first endless round is a record")
 	t.check(Progress.is_new_record(_endless(20), _endless(31)), "further")
 	t.check(not Progress.is_new_record(_endless(31), _endless(20)), "not as far")

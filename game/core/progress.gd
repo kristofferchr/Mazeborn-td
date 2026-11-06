@@ -9,7 +9,8 @@ extends RefCounted
 ## Stars (classic only): 1 for a win, 2 for a win with at least half the lives
 ## left (10 of 20 on Normal), 3 for a win without a single leak. A loss, and
 ## any endless round (it is never won), gives none; there the wave reached
-## counts. The rules and the comparison are pure; only load_file() and save()
+## counts (Game.score(): the last wave cleared, so waves sent early do not).
+## The rules and the comparison are pure; only load_file() and save()
 ## touch a file (through SafeConfig: atomic saves, an unreadable file is kept
 ## as progress.cfg.bak).
 
@@ -55,7 +56,7 @@ static func result_of(game: Game) -> Dictionary:
 	return {
 		"won": won,
 		"lives": game.lives,
-		"wave": game.wave,
+		"wave": game.score() if mode == ENDLESS else game.wave,
 		"waves": game.waves.size() if mode == CLASSIC else 0,
 		"stars": stars_for(won, game.lives, game.start_lives),
 		"mode": mode,

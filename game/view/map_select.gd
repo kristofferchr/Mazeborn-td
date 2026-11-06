@@ -12,9 +12,8 @@ signal back_pressed
 
 const MARGIN := 40.0
 const GAP := 22
-## The Klassisk/Endeløs selector. Off until the endless mode is in the core:
-## while hidden, the mode is always "classic".
-const SHOW_MODE := false
+## The Klassisk/Endeløs selector (false hides it and forces "classic").
+const SHOW_MODE := true
 
 var selected := Maps.DEFAULT
 var difficulty := Difficulty.DEFAULT

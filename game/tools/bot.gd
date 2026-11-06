@@ -11,28 +11,43 @@ const REVEAL_EVERY := 8  # a revealing tower every this many towers along the ma
 var game: Game
 var plan: Array[Vector2i]
 var leaked_by_wave := {}  # wave number -> creeps that got through
+## Send each wave as soon as the bot has built (for the early gold) instead of
+## letting the countdown run out.
+var send_early := false
+var early_gold := 0  # gold earned by sending early
 
 
-func _init(p_game: Game) -> void:
+func _init(p_game: Game, p_send_early := false) -> void:
 	game = p_game
+	send_early = p_send_early
 	plan = MazePlan.serpentine(game.grid)
 
 
-## Plays the whole round. `on_wave` is called after each wave (with this bot).
-func play(on_wave := Callable()) -> bool:
-	while not game.is_over():
+## Plays the whole round, in endless at most `max_waves` waves (0: no limit).
+## `on_wave` is called after each wave (with this bot).
+func play(on_wave := Callable(), max_waves := 0) -> bool:
+	while not game.is_over() and (max_waves <= 0 or game.wave < max_waves):
 		play_wave()
 		if on_wave.is_valid():
 			on_wave.call(self)
 	return game.phase == Game.Phase.WON
 
 
-## Spends the gold, then runs the next wave to its end. Leaks are counted from
-## the lives (no signal, so the bot and the game do not keep each other alive).
+## Spends the gold during the build phase (no gold comes in then, so building
+## at once is the same as building during the countdown), then starts the
+## next wave: the first one and with send_early at once, else when the
+## countdown runs out. Runs the wave to its end. Leaks are counted from the
+## lives (no signal, so the bot and the game do not keep each other alive).
 func play_wave() -> void:
 	spend()
 	var lives := game.lives
-	game.start_wave()
+	if game.wave == 0 or send_early or not game.countdown_active():
+		var gold := game.gold
+		game.start_wave()
+		early_gold += game.gold - gold
+	else:
+		while game.countdown_active():
+			game.step()
 	game.run_wave()
 	leaked_by_wave[game.wave] = lives - game.lives
 

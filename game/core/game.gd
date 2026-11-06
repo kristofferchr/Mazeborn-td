@@ -6,10 +6,21 @@ extends RefCounted
 ## and listens to the signals.
 ##
 ## Config: start_gold, lives, wave_bonus, early_bonus, interest_rate,
-## interest_max and waves (data/waves.json), towers (data/towers.json), creeps
-## (data/creeps.json), hp_scale (creep health, a map rule) and bounty_scale
-## (gold per kill). A difficulty (Difficulty, data/difficulty.json) scales these
-## on top of the map's rules. The board comes
+## interest_max, the countdown (build_time ...), endless and waves
+## (data/waves.json), towers (data/towers.json), creeps (data/creeps.json),
+## hp_scale (creep health, a map rule) and bounty_scale (gold per kill). A
+## difficulty (Difficulty, data/difficulty.json) scales these on top of the
+## map's rules.
+##
+## Wave flow: the first wave waits for the player. After a wave is cleared the
+## next one starts by itself when the countdown (build_time seconds, see
+## build_time_for) runs out. Sending it earlier pays early_gold_per_second for
+## the time left, and sending it while a wave still runs also pays the flat
+## early_bonus (see early_gold).
+##
+## Options (create_map): "difficulty" (see above) and "mode": "endless" never
+## wins; after the scripted waves come generated ones forever (see
+## endless_wave). Unknown keys are kept in `options` for other features. The board comes
 ## from a map (data/maps/, see Maps); creeps take turns between its spawns.
 ## Creep abilities are data too: a creep kind lists them under "abilities" and a
 ## wave group may override them (see Creep.setup_abilities, _heal, _spawn_children).
@@ -34,6 +45,8 @@ signal boss_phase(creep: Creep, phase: int)  # an invulnerable phase began (1-ba
 signal boss_enraged(creep: Creep)
 signal wave_started(number: int)
 signal wave_cleared(number: int)
+signal countdown_started(number: int, seconds: float)  # wave `number` starts in `seconds`
+signal countdown_tick(seconds_left: int)  # the countdown passed a whole second
 signal game_over(won: bool)
 
 enum Phase { BUILD, WAVE, WON, LOST }
@@ -42,6 +55,8 @@ const DT := 1.0 / 30.0  # fixed simulation step in seconds
 const WAVES_FILE := "res://data/waves.json"
 const TOWERS_FILE := "res://data/towers.json"
 const CREEPS_FILE := "res://data/creeps.json"
+const ENDLESS_HP_CAP := 1e15  # creep health of far endless waves stops growing here
+const ENDLESS_BOUNTY_CAP := 1e9
 ## Tag in the next-wave card for an ability a wave group adds to its creeps.
 const ABILITY_TAGS := {
 	"heal": "Helbreder",
@@ -58,6 +73,7 @@ var gold: int
 var lives: int
 var start_lives: int  # lives at the start of the round
 var wave := 0  # number of the last started wave (1-based)
+var cleared := 0  # number of the last wave cleared (all its creeps gone)
 var waves: Array[Dictionary] = []
 var tower_defs: Dictionary  # kind -> definition with levels
 var tower_order: Array[String] = []
@@ -73,10 +89,19 @@ var interest_max: int
 var hp_scale: float  # creep health multiplier (map rule times difficulty, 1.0 by default)
 var bounty_scale: float  # gold per kill multiplier (difficulty, 1.0 by default)
 var difficulty := Difficulty.DEFAULT
-## Options the round was made with ({"difficulty": "normal", ...}). Keys this
-## class does not know are kept, so other modes can add their own.
+var build_time: float  # countdown before a wave, 0 = no countdown (waits for the player)
+var build_time_min: float
+var build_time_step: float  # seconds less per wave, down to build_time_min
+var early_gold_per_second: float  # paid for the countdown time skipped by sending early
+## Options the round was made with ({"difficulty": "normal", "mode": ...}). Keys
+## this class does not know are kept, so other modes can add their own.
 var options: Dictionary = {}
+var endless := false  # "mode": "endless": waves go on forever and the round is never won
+var endless_config: Dictionary = {}
+var seed_value: int
 var ticks := 0
+var countdown_ticks := 0  # steps left until the next wave starts by itself
+var countdown_total_ticks := 0
 var rng := RandomNumberGenerator.new()
 
 var _accumulator := 0.0
@@ -85,13 +110,18 @@ var _spawn_timer := 0.0
 var _next_creep_id := 1
 var _spawned := 0  # ground and air creeps spawned so far (picks the spawn)
 var _next_projectile_id := 1
+var _generated: Dictionary = {}  # wave number -> endless wave (cache)
+var _endless_kinds: Array[String] = []
+var _models: Dictionary = {}  # creep kind -> models used by the scripted waves
 
 
 func _init(config: Dictionary, p_grid: Grid, p_seed := 1, p_options := {}) -> void:
 	grid = p_grid
+	seed_value = p_seed
 	rng.seed = p_seed
 	options = p_options.duplicate(true) if p_options is Dictionary else {}
 	difficulty = str(options.get("difficulty", Difficulty.DEFAULT))
+	endless = str(options.get("mode", "classic")) == "endless"
 	gold = int(config.start_gold)
 	lives = int(config.lives)
 	start_lives = lives
@@ -101,6 +131,12 @@ func _init(config: Dictionary, p_grid: Grid, p_seed := 1, p_options := {}) -> vo
 	interest_max = int(config.get("interest_max", 0))
 	hp_scale = float(config.get("hp_scale", 1.0))
 	bounty_scale = float(config.get("bounty_scale", 1.0))
+	build_time = float(config.get("build_time", 0.0))
+	build_time_min = float(config.get("build_time_min", 0.0))
+	build_time_step = float(config.get("build_time_step", 0.0))
+	early_gold_per_second = float(config.get("early_gold_per_second", 0.0))
+	var ec: Variant = config.get("endless", {})
+	endless_config = ec if ec is Dictionary else {}
 	tower_defs = config.towers.towers
 	refund_rate = float(config.towers.refund)
 	for kind: Variant in config.towers.get("order", tower_defs.keys()):
@@ -108,6 +144,7 @@ func _init(config: Dictionary, p_grid: Grid, p_seed := 1, p_options := {}) -> vo
 	creep_defs = config.creeps
 	for w: Dictionary in config.waves:
 		waves.append(w)
+	_setup_endless()
 
 
 ## The default map (Engen: spawn left, goal right) with the data in data/.
@@ -246,25 +283,28 @@ func sell(cell: Vector2i) -> int:
 
 ## A new wave may start between waves, or early once the current one has spawned.
 func can_start_wave() -> bool:
-	if is_over() or wave >= waves.size():
+	if is_over() or not has_wave(wave + 1):
 		return false
 	return phase == Phase.BUILD or _queue.is_empty()
 
 
-## True while a wave runs and the next can be sent early for early_bonus gold.
+## True while a wave runs and the next can be sent early (see early_gold).
 func can_send_early() -> bool:
 	return phase == Phase.WAVE and can_start_wave()
 
 
+## Starts the next wave. Before the countdown runs out this pays early_gold.
 func start_wave() -> bool:
 	if not can_start_wave():
 		return false
-	if phase == Phase.WAVE and early_bonus > 0:
-		_add_gold(early_bonus)
-		gold_bonus.emit(early_bonus, "early")
+	var bonus := early_gold()
+	if bonus > 0:
+		_add_gold(bonus)
+		gold_bonus.emit(bonus, "early")
+	countdown_ticks = 0
 	wave += 1
 	phase = Phase.WAVE
-	for group: Dictionary in wave_groups(waves[wave - 1]):
+	for group: Dictionary in wave_groups(wave_data(wave)):
 		_queue.append({"group": group, "left": int(group.count)})
 	if _spawn_timer < 0.0:
 		_spawn_timer = 0.0
@@ -272,9 +312,102 @@ func start_wave() -> bool:
 	return true
 
 
+## Gold for starting the next wave now: early_gold_per_second for the countdown
+## time skipped (all of it while a wave still runs), plus the flat early_bonus
+## when the current wave is still running. 0 for the first wave.
+func early_gold() -> int:
+	if not can_start_wave() or wave == 0:
+		return 0
+	if phase == Phase.WAVE:
+		var skipped := roundi(build_time_for(wave + 1) / DT)
+		return early_bonus + _gold_for_ticks(skipped)
+	return _gold_for_ticks(countdown_ticks)
+
+
+func _gold_for_ticks(n: int) -> int:
+	return floori(n * DT * early_gold_per_second + 0.0001)
+
+
+## Countdown in seconds before wave `number` (2 or later) starts by itself: the
+## wave's own "build_time", else build_time minus build_time_step per wave
+## after the second, never below build_time_min. 0 means no countdown.
+func build_time_for(number: int) -> float:
+	var w := wave_data(number)
+	if w.has("build_time"):
+		return float(w.build_time)
+	if build_time <= 0.0:
+		return 0.0
+	return maxf(build_time - build_time_step * maxi(number - 2, 0), build_time_min)
+
+
+## True while the countdown to the next wave runs.
+func countdown_active() -> bool:
+	return phase == Phase.BUILD and countdown_ticks > 0
+
+
+## Seconds left of the countdown (0 when it does not run).
+func countdown() -> float:
+	return countdown_ticks * DT if countdown_active() else 0.0
+
+
+## Share of the countdown left, from 1 (just started) to 0.
+func countdown_fraction() -> float:
+	if not countdown_active() or countdown_total_ticks <= 0:
+		return 0.0
+	return float(countdown_ticks) / countdown_total_ticks
+
+
+func _start_countdown() -> void:
+	countdown_ticks = 0
+	countdown_total_ticks = 0
+	var seconds := build_time_for(wave + 1)
+	if seconds <= 0.0 or not can_start_wave():
+		return
+	countdown_ticks = maxi(roundi(seconds / DT), 1)
+	countdown_total_ticks = countdown_ticks
+	countdown_started.emit(wave + 1, seconds)
+
+
+func _tick_countdown() -> void:
+	if not countdown_active():
+		return
+	var before := ceili(countdown_ticks * DT - 0.0001)
+	countdown_ticks -= 1
+	var after := ceili(countdown_ticks * DT - 0.0001)
+	if after < before:
+		countdown_tick.emit(after)
+	if countdown_ticks == 0:
+		start_wave()
+
+
 ## The wave after the last started one, or {} when there are no more waves.
 func next_wave() -> Dictionary:
-	return waves[wave] if wave < waves.size() else {}
+	return wave_data(wave + 1)
+
+
+## Wave `number` (1-based): a scripted one, then in endless generated ones.
+## {} when there is no such wave.
+func wave_data(number: int) -> Dictionary:
+	if number >= 1 and number <= waves.size():
+		return waves[number - 1]
+	if endless and number > waves.size():
+		return endless_wave(number)
+	return {}
+
+
+func has_wave(number: int) -> bool:
+	return not wave_data(number).is_empty()
+
+
+## True for the last wave of a classic round (clearing it wins). Never in endless.
+func is_final_wave(number: int) -> bool:
+	return not endless and number >= waves.size()
+
+
+## The score of an endless round: the last wave cleared (sending waves early
+## does not raise it).
+func score() -> int:
+	return cleared
 
 
 ## Groups of a wave; a wave without "groups" is one group.
@@ -323,6 +456,117 @@ func is_over() -> bool:
 	return phase == Phase.WON or phase == Phase.LOST
 
 
+# --- Endless ------------------------------------------------------------------
+
+
+## Kinds the endless waves cycle through ("kinds" in the endless config, else
+## every non-boss kind with a tag or "normal", in data order) and the models
+## the scripted waves use for each kind.
+func _setup_endless() -> void:
+	for w in waves:
+		for g in wave_groups(w):
+			var kind := str(g.get("creep", "normal"))
+			if not _models.has(kind):
+				_models[kind] = []
+			var models: Array = _models[kind]
+			if g.has("model") and str(g.model) not in models:
+				models.append(str(g.model))
+	var listed: Variant = endless_config.get("kinds")
+	if listed is Array:
+		for k: Variant in listed:
+			if creep_defs.has(str(k)):
+				_endless_kinds.append(str(k))
+	if _endless_kinds.is_empty():
+		for k: String in creep_defs:
+			var def: Dictionary = creep_defs[k]
+			if not def.get("boss", false) and (k == "normal" or def.has("tag")):
+				_endless_kinds.append(k)
+	if _endless_kinds.is_empty():
+		_endless_kinds.append("normal")
+
+
+## Generated wave `number` of an endless round (after the scripted waves). The
+## same seed always gives the same waves, and generating one never touches the
+## round's rng. The main group cycles through the kinds, a second group of a
+## random kind joins most waves and every few waves a group gains an ability.
+## Health grows by hp_growth per wave and bounty by the slower bounty_growth.
+## Every boss_every-th wave is a boss (cycling boss_kinds) with an escort.
+func endless_wave(number: int) -> Dictionary:
+	if _generated.has(number):
+		return _generated[number]
+	var ec := endless_config
+	var k := number - waves.size()  # 1 for the first generated wave
+	var r := RandomNumberGenerator.new()
+	r.seed = hash("endless:%d:%d" % [seed_value, number])
+	# Capped so far waves stay well inside the int range of the data.
+	var hp := minf(
+		float(ec.get("hp", 700.0)) * pow(float(ec.get("hp_growth", 1.12)), k - 1), ENDLESS_HP_CAP
+	)
+	var bounty := minf(
+		float(ec.get("bounty", 9.0)) * pow(float(ec.get("bounty_growth", 1.05)), k - 1),
+		ENDLESS_BOUNTY_CAP
+	)
+	var kind_hp: Dictionary = ec.get("kind_hp", {})
+	var count_range: Array = ec.get("count", [10, 16])
+	var main := _endless_kinds[(k - 1) % _endless_kinds.size()]
+	var groups: Array = []
+	var boss_every := int(ec.get("boss_every", 5))
+	var boss_kinds: Array = (ec.get("boss_kinds", ["boss", "miniboss"]) as Array).filter(
+		func(b: Variant) -> bool: return creep_defs.has(str(b))
+	)
+	if boss_every > 0 and number % boss_every == 0 and not boss_kinds.is_empty():
+		var boss_kind := str(boss_kinds[(number / boss_every) % boss_kinds.size()])
+		var boss := _endless_group(boss_kind, 1, hp * float(ec.get("boss_hp", 16.0)), bounty, r)
+		boss.bounty = roundi(minf(bounty * float(ec.get("boss_bounty", 15.0)), ENDLESS_BOUNTY_CAP))
+		boss.interval = 1.5
+		# Summons grow with the wave instead of keeping their flat health.
+		if _creep_def(boss_kind).get("abilities", {}).has("summon"):
+			var summon_hp := roundi(hp * float(ec.get("summon_hp", 0.25)))
+			boss.abilities = {"summon": {"hp": summon_hp}}
+		groups.append(_endless_group(main, int(ec.get("escort", 6)), hp, bounty, r, kind_hp))
+		groups.append(boss)
+	else:
+		var count := r.randi_range(int(count_range[0]), int(count_range[-1]))
+		var first := _endless_group(main, count, hp, bounty, r, kind_hp)
+		groups.append(first)
+		if r.randf() < float(ec.get("mix_chance", 0.6)):
+			var other := _endless_kinds[r.randi_range(0, _endless_kinds.size() - 1)]
+			if other != main:
+				first.count = maxi(roundi(count * 0.65), 1)
+				groups.append(
+					_endless_group(other, maxi(roundi(count * 0.45), 1), hp, bounty, r, kind_hp)
+				)
+		var extra: Array = ec.get("abilities", [])
+		var every := int(ec.get("ability_every", 3))
+		if not extra.is_empty() and every > 0 and k % every == 0:
+			var add: Dictionary = extra[(k / every - 1) % extra.size()]
+			var g: Dictionary = groups[r.randi_range(0, groups.size() - 1)]
+			g.abilities = add.duplicate(true)
+	var w := {"groups": groups, "endless": true}
+	_generated[number] = w
+	return w
+
+
+## One group of an endless wave; its model is one the scripted waves use for
+## the kind.
+func _endless_group(
+	kind: String, count: int, hp: float, bounty: float, r: RandomNumberGenerator, kind_hp := {}
+) -> Dictionary:
+	var def := _creep_def(kind)
+	var fast := float(def.get("speed", 1.7)) > 2.2
+	var g := {
+		"creep": kind,
+		"count": count,
+		"hp": roundi(minf(hp * float(kind_hp.get(kind, 1.0)), ENDLESS_HP_CAP)),
+		"interval": 0.5 if fast else 0.8,
+		"bounty": maxi(roundi(bounty), 1),
+	}
+	var models: Array = _models.get(kind, [])
+	if not models.is_empty():
+		g.model = str(models[r.randi_range(0, models.size() - 1)])
+	return g
+
+
 # --- Simulation ---------------------------------------------------------------
 
 
@@ -351,6 +595,7 @@ func step() -> void:
 	if is_over():
 		return
 	ticks += 1
+	_tick_countdown()
 	_spawn()
 	_use_abilities()
 	_tick_effects()
@@ -668,12 +913,14 @@ func _check_wave_end() -> void:
 	if interest > 0:
 		_add_gold(interest)
 		gold_bonus.emit(interest, "interest")
+	cleared = wave
 	wave_cleared.emit(wave)
-	if wave >= waves.size():
+	if is_final_wave(wave):
 		phase = Phase.WON
 		game_over.emit(true)
 	else:
 		phase = Phase.BUILD
+		_start_countdown()
 
 
 func _repath() -> void:

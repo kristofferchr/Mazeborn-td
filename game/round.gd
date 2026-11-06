@@ -178,6 +178,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_pinch(e.index, old)
 	elif event is InputEventMouseButton and event.pressed:
 		var mb := event as InputEventMouseButton
+		if hud.is_over_ui(mb.position):
+			return  # e.g. the wheel at the end of the wave overview
 		if mb.button_index == MOUSE_BUTTON_WHEEL_UP:
 			camera.zoom(1.1, mb.position)
 		elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:

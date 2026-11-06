@@ -1,7 +1,7 @@
 extends Node
 ## Screenshot scene for the menus. Env MENU picks the screen: title,
-## title_settings, maps (with made-up progress), pause, settings, won or lost
-## (end screen with a new record). Progress goes to a temp file. For maps,
+## title_settings, maps (with made-up progress), pause, settings, won, lost or
+## endless_lost (end screens with a new record). Progress goes to a temp file. For maps,
 ## MENU_LEVEL picks the difficulty and MENU_MODE=endless the endless mode.
 ## Usage: MENU=maps scripts/screenshot.sh out.png res://tools/menus.tscn 30 2532x1170
 
@@ -40,7 +40,9 @@ func _ready() -> void:
 			round.set_paused(true)
 			if which == "settings":
 				round.hud._pause_menu.settings_pressed.emit()
-		"won", "lost":
+		"won", "lost", "endless_lost":
+			if which == "endless_lost":
+				OS.set_environment("DEMO_STATE", "endless")
 			var demo: Node = load(DEMO).instantiate()
 			add_child(demo)
 			var round := demo.get_child(0) as Round
@@ -56,6 +58,7 @@ func _ready() -> void:
 				game.phase = Game.Phase.WON
 			else:
 				game.lives = 0
+				game.cleared = game.wave - 1  # endless: the score is the last cleared wave
 				game.phase = Game.Phase.LOST
 			game.game_over.emit(which == "won")
 
