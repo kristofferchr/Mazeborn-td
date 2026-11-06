@@ -52,10 +52,10 @@ func _ready() -> void:
 	hud = Hud.new()
 	add_child(hud)
 	hud.setup(game, board, camera)
-	hud.start_wave_pressed.connect(func() -> void: game.start_wave())
+	hud.start_wave_pressed.connect(func() -> void: game.apply({"type": "start_wave"}))
 	hud.build_pressed.connect(func() -> void: _build_selected())
 	hud.sell_pressed.connect(_sell_selected)
-	hud.upgrade_pressed.connect(func(option: String) -> void: game.upgrade(selected, option))
+	hud.upgrade_pressed.connect(_upgrade_selected)
 	hud.kind_selected.connect(func(kind: String) -> void: build_kind = kind)
 	hud.targeting_pressed.connect(_toggle_targeting)
 	hud.speed_pressed.connect(_toggle_speed)
@@ -227,23 +227,27 @@ func _select(cell: Vector2i) -> void:
 
 
 func _build_selected() -> void:
-	if selected != NO_CELL and game.build(selected, build_kind) != null:
+	if selected == NO_CELL:
+		return
+	if game.apply({"type": "build", "cell": selected, "kind": build_kind}):
 		_select(NO_CELL)
 
 
 func _sell_selected() -> void:
-	if selected != NO_CELL and game.sell(selected) > 0:
+	if selected != NO_CELL and game.apply({"type": "sell", "cell": selected}):
 		_select(NO_CELL)
+
+
+func _upgrade_selected(option: String) -> void:
+	if selected != NO_CELL:
+		game.apply({"type": "upgrade", "cell": selected, "option": option})
 
 
 func _toggle_targeting() -> void:
 	var tower := game.tower_at(selected)
 	if tower:
-		tower.targeting = (
-			Tower.Targeting.CLOSEST
-			if tower.targeting == Tower.Targeting.FIRST
-			else Tower.Targeting.FIRST
-		)
+		var mode := "closest" if tower.targeting == Tower.Targeting.FIRST else "first"
+		game.apply({"type": "target", "cell": selected, "mode": mode})
 
 
 func _toggle_speed() -> void:
