@@ -39,6 +39,8 @@ func test_defaults_without_a_file() -> void:
 	t.eq(s.difficulty, "normal", "Normal")
 	t.eq(s.map_id, Maps.DEFAULT, "default map")
 	t.eq(s.mode, "classic", "classic mode")
+	t.eq(s.vibration, true, "vibration on")
+	t.eq(s.tutorial_done, false, "the guided round not played")
 
 
 func test_save_and_load_round_trip_keeps_other_keys() -> void:
@@ -54,6 +56,8 @@ func test_save_and_load_round_trip_keeps_other_keys() -> void:
 	s.difficulty = "extreme"
 	s.map_id = "klofta"
 	s.mode = "endless"
+	s.vibration = false
+	s.tutorial_done = true
 	t.eq(s.save(), OK, "saved")
 	var r := UserSettings.open(TEMP)
 	t.eq(
@@ -61,6 +65,7 @@ func test_save_and_load_round_trip_keeps_other_keys() -> void:
 		[true, 0.25, 0.5, 2, "extreme", "klofta", "endless"],
 		"loaded"
 	)
+	t.eq([r.vibration, r.tutorial_done], [false, true], "vibration and the guided round")
 	cfg = ConfigFile.new()
 	cfg.load(TEMP)
 	t.eq(cfg.get_value("other", "key"), 42, "unknown key kept")
