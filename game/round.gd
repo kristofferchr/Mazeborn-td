@@ -66,6 +66,8 @@ func _ready() -> void:
 	hud.resume_pressed.connect(set_paused.bind(false))
 	hud.set_speed_text("%dx" % int(speed))
 	game.game_over.connect(_on_game_over)
+	Haptics.load_setting(UserSettings.open())
+	Haptics.watch(game)
 	_watch_record()
 
 	audio = GameAudio.new()
