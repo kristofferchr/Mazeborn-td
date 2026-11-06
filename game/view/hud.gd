@@ -3,8 +3,8 @@ extends CanvasLayer
 ## Heads-up display: resources, wave controls (the start button with the
 ## countdown ring), the next-wave card (tap it for the overview of every wave
 ## left), the build menu and tower panel, health bars, floating gold, the mute
-## button and the end screen. Damage numbers, wave banners and the leak glow:
-## HudFx.
+## and pause buttons, the pause menu with the settings, and the end screen
+## (stars, record). Damage numbers, wave banners and the leak glow: HudFx.
 ## Reads the game state; user actions are sent out as signals. Look: UiStyle.
 
 signal start_wave_pressed
@@ -15,8 +15,10 @@ signal sell_pressed
 signal targeting_pressed
 signal speed_pressed
 signal mute_pressed
-signal retry_pressed
-signal maps_pressed
+signal pause_pressed
+signal resume_pressed
+signal retry_pressed  # "Prøv igjen" and "Start på nytt"
+signal maps_pressed  # "Velg kart" and "Avslutt til kart"
 
 const MARGIN := 20.0
 const TAG_COLORS := {
@@ -63,6 +65,12 @@ var _wave: Label
 var _speed: Button
 var _mute: Button
 var _mute_icon: UiIcon
+var _pause: Button
+var _pause_menu: PauseMenu
+var _settings: SettingsPanel
+var _end_stars: HBoxContainer
+var _end_record: Label
+var _paused := false
 var _start: Button
 var _start_box: HBoxContainer  # countdown: ring and two lines of text
 var _ring: Control
@@ -117,7 +125,7 @@ func setup(p_game: Game, p_board: BoardView, p_camera: Camera3D) -> void:
 
 ## True if a screen position is on a HUD control (so the tap is not for the map).
 func is_over_ui(pos: Vector2) -> bool:
-	if _end.visible:
+	if _end.visible or is_menu_open():
 		return true
 	for c in _ui:
 		if c.is_visible_in_tree() and c.get_global_rect().grow(6.0).has_point(pos):
@@ -174,6 +182,58 @@ func set_muted(muted: bool) -> void:
 	_mute_icon.kind = "sound_off" if muted else "sound"
 	_mute_icon.color = UiStyle.MUTED if muted else UiStyle.TEXT
 	_mute_icon.queue_redraw()
+
+
+## True while the pause menu or the settings cover the screen.
+func is_menu_open() -> bool:
+	return _pause_menu.visible or _settings.visible
+
+
+## "Bølge 6 av 12", or "Bølge 31" in the endless mode (no last wave).
+static func wave_text(g: Game) -> String:
+	if Progress.mode_of(g.options) == Progress.ENDLESS:
+		return "Bølge %d" % g.wave
+	return "Bølge %d av %d" % [g.wave, g.waves.size()]
+
+
+## Opens or closes the pause menu (the round pauses the game).
+func show_paused(on: bool) -> void:
+	_paused = on
+	if on:
+		var parts: Array[String] = [
+			str(game.map.get("name", "Kart")),
+			Difficulty.display_name(game.difficulty),
+			wave_text(game).to_lower(),
+		]
+		_pause_menu.set_info("  ·  ".join(parts))
+		_pause_menu.open()
+	else:
+		_pause_menu.close()
+		_settings.visible = false
+
+
+## Stars and "Ny rekord!" on the end screen (after the game is over).
+func show_result(stars: int, new_record: bool) -> void:
+	UiStyle.set_stars(_end_stars, stars)
+	_end_stars.visible = game.phase == Game.Phase.WON
+	_end_record.visible = new_record
+	if _end_stars.visible:
+		for i in _end_stars.get_child_count():
+			var star := _end_stars.get_child(i) as Control
+			star.pivot_offset = star.custom_minimum_size / 2.0
+			star.scale = Vector2.ZERO
+			var tw := star.create_tween()
+			tw.tween_interval(0.25 + 0.18 * i)
+			(
+				tw
+				. tween_property(star, "scale", Vector2.ONE, 0.35)
+				. set_trans(Tween.TRANS_BACK)
+				. set_ease(Tween.EASE_OUT)
+			)
+	if new_record:
+		var pulse := _end_record.create_tween().set_loops()
+		pulse.tween_property(_end_record, "modulate:a", 0.7, 0.6)
+		pulse.tween_property(_end_record, "modulate:a", 1.0, 0.6)
 
 
 func _process(_delta: float) -> void:
@@ -442,13 +502,13 @@ func _build() -> void:
 
 	_mute = _button("", "secondary", func() -> void: mute_pressed.emit())
 	_mute.custom_minimum_size = Vector2(72, 72)
-	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_mute.add_child(center)
-	_mute_icon = UiIcon.make("sound", UiStyle.TEXT, 36)
-	center.add_child(_mute_icon)
+	_mute_icon = _icon_on(_mute, "sound")
 	_root.add_child(_mute)
+
+	_pause = _button("", "secondary", func() -> void: pause_pressed.emit())
+	_pause.custom_minimum_size = Vector2(72, 72)
+	_icon_on(_pause, "pause")
+	_root.add_child(_pause)
 
 	_start = _button("Start bølge", "primary", func() -> void: start_wave_pressed.emit())
 	_start.custom_minimum_size = Vector2(340, 92)
@@ -460,7 +520,8 @@ func _build() -> void:
 	_build_overview()
 	_build_panel()
 	_build_end_screen()
-	_ui = [_top, _speed, _mute, _start, _panel, _next, _overview]
+	_build_pause_menu()
+	_ui = [_top, _speed, _mute, _pause, _start, _panel, _next, _overview]
 
 
 ## Countdown content of the start button: a ring with the seconds left, then
@@ -495,6 +556,38 @@ func _build_countdown() -> void:
 	lines.add_child(_start_title)
 	_start_sub = UiStyle.label("", 19, Color(UiStyle.ON_ACCENT, 0.72), true)
 	lines.add_child(_start_sub)
+
+
+## Pause menu and settings: they work while the tree is paused.
+func _build_pause_menu() -> void:
+	_pause_menu = PauseMenu.new()
+	_pause_menu.resume_pressed.connect(func() -> void: resume_pressed.emit())
+	_pause_menu.restart_pressed.connect(func() -> void: retry_pressed.emit())
+	_pause_menu.quit_pressed.connect(func() -> void: maps_pressed.emit())
+	_pause_menu.settings_pressed.connect(
+		func() -> void:
+			_pause_menu.close()
+			_settings.open()
+	)
+	_root.add_child(_pause_menu)
+	_settings = SettingsPanel.new()
+	_settings.closed.connect(
+		func() -> void:
+			if _paused:
+				_pause_menu.open()
+	)
+	_root.add_child(_settings)
+
+
+## A centered icon on a button.
+func _icon_on(b: Button, kind: String) -> UiIcon:
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(center)
+	var icon := UiIcon.make(kind, UiStyle.TEXT, 36)
+	center.add_child(icon)
+	return icon
 
 
 func _build_next_card() -> void:
@@ -657,9 +750,18 @@ func _build_end_screen() -> void:
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
 	box.add_theme_constant_override("separation", 14)
 	card.add_child(box)
+	_end_stars = UiStyle.stars(0, 64)
+	_end_stars.alignment = BoxContainer.ALIGNMENT_CENTER
+	_end_stars.visible = false
+	box.add_child(_end_stars)
 	_end_title = UiStyle.label("", 76, UiStyle.ACCENT, true)
 	_end_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(_end_title)
+	_end_record = UiStyle.chip("Ny rekord!", UiStyle.ACCENT_DARK, 24)
+	_end_record.add_theme_color_override("font_color", UiStyle.ON_ACCENT)
+	_end_record.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_end_record.visible = false
+	box.add_child(_end_record)
 	_end_text = UiStyle.label("", 26, UiStyle.TEXT)
 	_end_text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(_end_text)
@@ -768,8 +870,10 @@ func _layout() -> void:
 	var bottom: float = vp.y - MARGIN - inset.bottom
 	_top.reset_size()
 	_top.position = Vector2(left, top)
+	_pause.size = _pause.custom_minimum_size
+	_pause.position = Vector2(right - _pause.size.x, top)
 	_speed.size = _speed.custom_minimum_size
-	_speed.position = Vector2(right - _speed.size.x, top)
+	_speed.position = Vector2(_pause.position.x - 12.0 - _speed.size.x, top)
 	_mute.size = _mute.custom_minimum_size
 	_mute.position = Vector2(_speed.position.x - 12.0 - _mute.size.x, top)
 	_fx.banner_top = top + maxf(_top.size.y, _speed.size.y) + 18.0
@@ -868,14 +972,17 @@ func _on_game_over(won: bool) -> void:
 	if overview_open:
 		toggle_overview()
 	_end.visible = true
-	_end_stats.text = (
-		"%s   ·   Bølge %d av %d   ·   %d liv   ·   %d gull"
-		% [game.map.get("name", "Kart"), game.wave, game.waves.size(), game.lives, game.gold]
-	)
+	_pause.visible = false
+	show_paused(false)
+	var parts: Array[String] = [
+		str(game.map.get("name", "Kart")),
+		Difficulty.display_name(game.difficulty),
+		"Endeløs" if game.endless else wave_text(game),
+		"%d liv" % game.lives,
+		"%d gull" % game.gold,
+	]
+	_end_stats.text = "   ·   ".join(parts)
 	if game.endless:
-		_end_stats.text = (
-			"%s   ·   Endeløs   ·   %d gull" % [game.map.get("name", "Kart"), game.gold]
-		)
 		_end_title.text = "Bølge %d" % game.score()
 		_end_title.add_theme_color_override("font_color", UiStyle.ACCENT)
 		_end_text.text = (

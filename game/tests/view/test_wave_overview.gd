@@ -41,7 +41,10 @@ func test_endless_lists_waves_ahead() -> void:
 
 func test_map_select_endless_toggle_sets_the_mode() -> void:
 	var m := MapSelect.new()
-	t.eq(m.options(), {}, "classic by default")
+	t.eq(m.options().mode, "classic", "classic by default")
 	m.endless = true
-	t.eq(m.options(), {"mode": "endless"}, "endless")
+	t.check(MapSelect.SHOW_MODE, "the mode selector is shown")
+	t.eq(m.options().mode, "endless", "endless")
+	var g := Game.create_map("engen", 1, m.options())
+	t.check(g.endless, "the selected mode reaches the game")
 	m.free()

@@ -20,6 +20,7 @@ const GOOD := Color(0.42, 0.9, 0.5)
 const RADIUS := 18
 
 static var _bold: FontVariation
+static var _knob_tex: ImageTexture
 
 
 ## Bold variant of the default font, for numbers and titles.
@@ -147,3 +148,56 @@ static func label(text: String, size := 26, color := TEXT, is_bold := false) -> 
 	if is_bold:
 		l.add_theme_font_override("font", bold())
 	return l
+
+
+## A row of `total` stars, the first `filled` of them gold.
+static func stars(filled: int, size := 28.0, total := 3) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", int(size * 0.15))
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for i in total:
+		row.add_child(UiIcon.make("star" if i < filled else "star_empty", GOLD, size))
+	return row
+
+
+## Fills a row made by stars() with `filled` gold stars.
+static func set_stars(row: HBoxContainer, filled: int) -> void:
+	for i in row.get_child_count():
+		var icon := row.get_child(i) as UiIcon
+		icon.kind = "star" if i < filled else "star_empty"
+		icon.queue_redraw()
+
+
+## Slider look: a thin dark track, gold fill and a round light knob.
+static func style_slider(s: Slider) -> void:
+	var track := StyleBoxFlat.new()
+	track.bg_color = Color(1, 1, 1, 0.12)
+	track.set_corner_radius_all(99)
+	track.content_margin_top = 5
+	track.content_margin_bottom = 5
+	var fill := track.duplicate() as StyleBoxFlat
+	fill.bg_color = ACCENT
+	s.add_theme_stylebox_override("slider", track)
+	s.add_theme_stylebox_override("grabber_area", fill)
+	s.add_theme_stylebox_override("grabber_area_highlight", fill)
+	var knob := _knob(40)
+	s.add_theme_icon_override("grabber", knob)
+	s.add_theme_icon_override("grabber_highlight", knob)
+	s.add_theme_icon_override("grabber_disabled", knob)
+
+
+## A round knob with a gold ring, drawn once into a texture.
+static func _knob(px: int) -> ImageTexture:
+	if _knob_tex and _knob_tex.get_width() == px:
+		return _knob_tex
+	var img := Image.create(px, px, false, Image.FORMAT_RGBA8)
+	var c := Vector2(px, px) / 2.0
+	var r := px / 2.0 - 1.0
+	for x in px:
+		for y in px:
+			var d := Vector2(x + 0.5, y + 0.5).distance_to(c)
+			var a := clampf(r - d + 0.5, 0.0, 1.0)
+			var col := TEXT if d < r - 4.0 else ACCENT
+			img.set_pixel(x, y, Color(col, a))
+	_knob_tex = ImageTexture.create_from_image(img)
+	return _knob_tex

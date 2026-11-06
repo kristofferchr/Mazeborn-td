@@ -4,14 +4,18 @@ extends Node
 ## nothing about audio). Sounds: assets/audio/*.ogg, made by scripts/make_sfx.py.
 ## A small pool of players with per-sound limits and random pitch keeps twenty
 ## towers from turning into noise. Two music layers play in sync: the calm one
-## always, the drums fade in during a wave. Mute is kept in user://settings.cfg.
-## Browsers block audio until a user gesture, so on the web it starts on the
-## first tap.
+## always, the drums fade in during a wave. Music and effects play on their own
+## buses ("Music", "Sfx") with the volumes from the settings; mute silences the
+## master bus. Settings: UserSettings (user://settings.cfg). The music ducks
+## while the game is paused. Browsers block audio until a user gesture, so on
+## the web it starts on the first tap.
 
 signal muted_changed(muted: bool)
 
 const DIR := "res://assets/audio/"
-const SETTINGS := "user://settings.cfg"
+const MUSIC_BUS := "Music"
+const SFX_BUS := "Sfx"
+const DUCK_DB := -12.0  # music while paused
 const POOL_SIZE := 16
 const MUSIC_DB := -11.0  # calm layer
 const BATTLE_DB := -9.0  # drum layer during a wave
@@ -93,9 +97,13 @@ const DEFAULT_MIX := [-8.0, 2, 0.05, 0.05, 1]
 
 ## Browsers only allow audio after a user gesture; kept across scene reloads.
 static var _unlocked := not OS.has_feature("web")
+static var _duck := 0.0  # extra dB on the music bus (DUCK_DB while paused)
+static var _music_volume := 1.0  # slider values 0..1 from the settings
+static var _sfx_volume := 1.0
 
 var muted := false
 var _game: Game
+var _duck_tween: Tween
 var _streams: Dictionary = {}  # sound -> AudioStream
 var _pool: Array[AudioStreamPlayer] = []
 var _last_start: Dictionary = {}  # sound -> msec of the last start
@@ -134,21 +142,55 @@ static func all_sounds() -> Array[String]:
 	return out
 
 
+## Index of an audio bus, made (sending to the master bus) if it is missing.
+static func bus(bus_name: String) -> int:
+	var i := AudioServer.get_bus_index(bus_name)
+	if i < 0:
+		AudioServer.add_bus()
+		i = AudioServer.bus_count - 1
+		AudioServer.set_bus_name(i, bus_name)
+		AudioServer.set_bus_send(i, "Master")
+	return i
+
+
+## Sets the music and effect volumes (slider values 0..1), live.
+static func set_volumes(music: float, sfx: float) -> void:
+	_music_volume = music
+	_sfx_volume = sfx
+	_apply_volumes()
+
+
+static func _apply_volumes() -> void:
+	AudioServer.set_bus_volume_db(bus(MUSIC_BUS), UserSettings.volume_db(_music_volume) + _duck)
+	AudioServer.set_bus_volume_db(bus(SFX_BUS), UserSettings.volume_db(_sfx_volume))
+
+
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	for i in POOL_SIZE:
 		var p := AudioStreamPlayer.new()
+		p.bus = SFX_BUS
 		add_child(p)
 		_pool.append(p)
+	bus(MUSIC_BUS)
+	bus(SFX_BUS)
 	_calm = _music_player(MUSIC.calm, MUSIC_DB)
 	_battle = _music_player(MUSIC.battle, SILENT_DB)
 	_load_settings()
+	set_ducked(false, 0.0)
 	if _unlocked:
 		_start_music()
 	# Every button in the scene clicks (also ones made later, like upgrade cards).
 	get_tree().node_added.connect(_on_node_added)
 	for b: Node in get_tree().root.find_children("*", "BaseButton", true, false):
 		_on_node_added(b)
+
+
+## The duck lives on the shared music bus: never leave it down after a round.
+func _exit_tree() -> void:
+	if _duck_tween:
+		_duck_tween.kill()
+	_set_duck(0.0)
 
 
 func setup(p_game: Game) -> void:
@@ -217,10 +259,9 @@ func play(sound: String, pitch := 1.0, volume := 0.0) -> bool:
 func set_muted(value: bool) -> void:
 	muted = value
 	AudioServer.set_bus_mute(0, muted)
-	var cfg := ConfigFile.new()
-	cfg.load(SETTINGS)
-	cfg.set_value("audio", "muted", muted)
-	cfg.save(SETTINGS)
+	var settings := UserSettings.open()
+	settings.muted = muted
+	settings.save()
 	muted_changed.emit(muted)
 
 
@@ -228,11 +269,28 @@ func toggle_muted() -> void:
 	set_muted(not muted)
 
 
+## Fades the music down while paused (or back up).
+func set_ducked(on: bool, seconds := 0.3) -> void:
+	if _duck_tween:
+		_duck_tween.kill()
+	var to := DUCK_DB if on else 0.0
+	if seconds <= 0.0:
+		_set_duck(to)
+		return
+	_duck_tween = create_tween()
+	_duck_tween.tween_method(_set_duck, _duck, to, seconds)
+
+
+func _set_duck(db: float) -> void:
+	_duck = db
+	_apply_volumes()
+
+
 func _load_settings() -> void:
-	var cfg := ConfigFile.new()
-	if cfg.load(SETTINGS) == OK:
-		muted = bool(cfg.get_value("audio", "muted", false))
+	var settings := UserSettings.open()
+	muted = settings.muted
 	AudioServer.set_bus_mute(0, muted)
+	set_volumes(settings.music_volume, settings.sfx_volume)
 
 
 func _stream(sound: String) -> AudioStream:
@@ -249,6 +307,7 @@ func _music_player(sound: String, db: float) -> AudioStreamPlayer:
 		(stream as AudioStreamOggVorbis).loop = true
 	p.stream = stream
 	p.volume_db = db
+	p.bus = MUSIC_BUS
 	add_child(p)
 	return p
 
