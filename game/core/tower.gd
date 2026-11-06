@@ -7,6 +7,9 @@ extends RefCounted
 
 enum Targeting { FIRST, CLOSEST }
 
+## Targeting modes by name, as in player actions and replays (Game.apply).
+const TARGETING_NAMES := {"first": Targeting.FIRST, "closest": Targeting.CLOSEST}
+
 var cell: Vector2i
 var kind: String
 var node_id: String  # current node in the kind's upgrade tree
@@ -129,6 +132,11 @@ func pick_targets(creeps: Array[Creep], n: int) -> Array[Creep]:
 	for i in mini(n, scored.size()):
 		out.append(scored[i][2])
 	return out
+
+
+## Name of the targeting mode ("first" or "closest").
+func targeting_name() -> String:
+	return "closest" if targeting == Targeting.CLOSEST else "first"
 
 
 func _pick(option: String) -> String:

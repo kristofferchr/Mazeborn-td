@@ -24,6 +24,10 @@ extends RefCounted
 ## from a map (data/maps/, see Maps); creeps take turns between its spawns.
 ## Creep abilities are data too: a creep kind lists them under "abilities" and a
 ## wave group may override them (see Creep.setup_abilities, _heal, _spawn_children).
+##
+## Player actions: the app makes every move through apply(), which performs it
+## and records it in `actions` with the tick. A round is then fully defined by
+## the map id, the options, the seed and those actions (see Replay).
 
 signal gold_changed(gold: int)
 signal lives_changed(lives: int)
@@ -52,6 +56,8 @@ signal game_over(won: bool)
 enum Phase { BUILD, WAVE, WON, LOST }
 
 const DT := 1.0 / 30.0  # fixed simulation step in seconds
+const NO_CELL := Vector2i(-1, -1)
+const ACTION_ARGS := {"build": "kind", "upgrade": "option", "target": "mode"}  # see apply
 const WAVES_FILE := "res://data/waves.json"
 const TOWERS_FILE := "res://data/towers.json"
 const CREEPS_FILE := "res://data/creeps.json"
@@ -103,6 +109,10 @@ var ticks := 0
 var countdown_ticks := 0  # steps left until the next wave starts by itself
 var countdown_total_ticks := 0
 var rng := RandomNumberGenerator.new()
+## Every player action apply() performed, in order, as plain data (JSON-ready):
+## {"tick": ticks when applied, "type": ..., and its parameters}. Grows only
+## by one entry per action, never per tick.
+var actions: Array[Dictionary] = []
 
 var _accumulator := 0.0
 var _queue: Array[Dictionary] = []  # groups left to spawn: {group, left}
@@ -276,6 +286,61 @@ func sell(cell: Vector2i) -> int:
 	_repath()
 	tower_sold.emit(tower, refund)
 	return refund
+
+
+# --- Player actions -----------------------------------------------------------
+
+
+## Performs one player action and, if it succeeds, appends it to `actions` with
+## the current tick. The actions:
+##   {"type": "build", "cell": c, "kind": "arrow"}
+##   {"type": "sell", "cell": c}
+##   {"type": "upgrade", "cell": c, "option": id}  ("" or missing: the first)
+##   {"type": "start_wave"}  (also sends the next wave early)
+##   {"type": "target", "cell": c, "mode": "first" | "closest"}
+## A cell is a Vector2i or [x, y]. An action that is not possible now (too
+## little gold, a blocked cell, the round is over ...) or not well-formed
+## returns false and changes and records nothing. Replays go through here as
+## well, so they accept and reject exactly the same actions.
+func apply(action: Dictionary) -> bool:
+	var type := str(action.get("type", ""))
+	var cell := action_cell(action.get("cell"))
+	var key: String = ACTION_ARGS.get(type, "")  # the action's parameter besides the cell
+	var arg := str(action.get(key, "")) if key != "" else ""
+	var tower := tower_at(cell)
+	var ok := false
+	match type:
+		"build":
+			ok = tower_defs.has(arg) and build(cell, arg) != null
+		"sell":
+			ok = tower != null and not is_over() and sell(cell) >= 0
+		"upgrade":
+			ok = upgrade(cell, arg)
+		"start_wave":
+			ok = start_wave()
+		"target":
+			ok = tower != null and not is_over() and Tower.TARGETING_NAMES.has(arg)
+			if ok:
+				tower.targeting = Tower.TARGETING_NAMES[arg]
+	if ok:
+		var entry := {"tick": ticks, "type": type}
+		if type != "start_wave":
+			entry.cell = [cell.x, cell.y]
+		if key != "":
+			entry[key] = arg
+		actions.append(entry)
+	return ok
+
+
+## The cell of an action: a Vector2i, or [x, y] (as in JSON). NO_CELL otherwise.
+static func action_cell(v: Variant) -> Vector2i:
+	if v is Vector2i:
+		return v
+	if v is Array and (v as Array).size() == 2:
+		var a := v as Array
+		if (a[0] is int or a[0] is float) and (a[1] is int or a[1] is float):
+			return Vector2i(int(a[0]), int(a[1]))
+	return NO_CELL
 
 
 # --- Waves --------------------------------------------------------------------
