@@ -8,7 +8,10 @@ extends Node3D
 ## in the menu, tap a tower to upgrade or sell; drag to pan, pinch to zoom.
 ## The pause button (or Esc, or the app going to the background) pauses the
 ## tree; the pause menu and settings keep working. The result of a finished
-## round is kept in the progress file (Progress).
+## round is kept in the progress file (Progress). Every player action goes
+## through Game.apply, so the round is recorded: when it ends (or is left) it is
+## kept as a replay (Replay.store), and "Del replay" on the end screen shares it
+## (ReplayShare).
 
 signal retry_requested  # "Prøv igjen" / "Start på nytt": the same map again
 signal maps_requested  # "Velg kart" / "Avslutt til kart": back to the map select
@@ -19,6 +22,8 @@ const NO_CELL := Vector2i(-1, -1)
 var map_id := Maps.DEFAULT
 var options: Dictionary = {}  # passed on to Game.create_map, unknown keys too
 var progress_path := Progress.PATH  # where results are kept ("" to keep none)
+var replay_dir := Replay.DIR  # where replays are kept ("" to keep none)
+var seed_value := -1  # seed for the Game (-1: a new random one; it is in the replay)
 var paused := false
 var game: Game
 var board: BoardView
@@ -32,10 +37,13 @@ var build_kind := "arrow"  # tower kind chosen in the build menu
 var _touches: Dictionary = {}  # index -> position
 var _tap_start := Vector2.ZERO
 var _tap_valid := false
+var _replay_saved := false
 
 
 func _ready() -> void:
-	game = Game.create_map(map_id, int(Time.get_unix_time_from_system()), options)
+	if seed_value < 0:
+		seed_value = randi()
+	game = Game.create_map(map_id, seed_value, options)
 	speed = float(UserSettings.open().speed)
 	add_environment(self)
 
@@ -61,6 +69,7 @@ func _ready() -> void:
 	hud.speed_pressed.connect(_toggle_speed)
 	hud.retry_pressed.connect(_retry)
 	hud.maps_pressed.connect(_choose_map)
+	hud.share_pressed.connect(_share_replay)
 	hud.pause_pressed.connect(set_paused.bind(true))
 	hud.resume_pressed.connect(set_paused.bind(false))
 	hud.set_speed_text("%dx" % int(speed))
@@ -111,11 +120,31 @@ func _on_game_over(_won: bool) -> void:
 		if progress.record(map_id, game.difficulty, result):
 			progress.save()
 	hud.show_result(int(result.stars), record)
+	_save_replay()
+
+
+## Keeps the round as a replay (once): user://replays/last.replay.json and the
+## last few rounds. Not for a round left before anything happened.
+func _save_replay() -> void:
+	if _replay_saved or replay_dir == "" or game.actions.is_empty():
+		return
+	_replay_saved = true
+	var err := Replay.store(Replay.record(game), replay_dir)
+	if err != OK:
+		push_warning("replay not saved: %s" % error_string(err))
+
+
+## "Del replay": hands the round's replay to the platform (ReplayShare) and
+## says what happened.
+func _share_replay() -> void:
+	var replay := Replay.record(game)
+	hud.show_toast(ReplayShare.share(replay.to_json(), replay.file_name()))
 
 
 ## Restarts the map: the app (main.gd) makes a new round; on its own the scene
 ## reloads.
 func _retry() -> void:
+	_save_replay()
 	set_paused(false)
 	if retry_requested.get_connections().is_empty():
 		get_tree().reload_current_scene()
@@ -124,6 +153,7 @@ func _retry() -> void:
 
 
 func _choose_map() -> void:
+	_save_replay()
 	set_paused(false)
 	if maps_requested.get_connections().is_empty():
 		get_tree().change_scene_to_file("res://main.tscn")

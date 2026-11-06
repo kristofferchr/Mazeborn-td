@@ -1,7 +1,8 @@
 extends Node
 ## Screenshot scene for the menus. Env MENU picks the screen: title,
 ## title_settings, maps (with made-up progress), pause, settings, won, lost or
-## endless_lost (end screens with a new record). Progress goes to a temp file. For maps,
+## endless_lost (end screens with a new record), or shared (the won one after
+## "Del replay", with the toast). Progress goes to a temp file. For maps,
 ## MENU_LEVEL picks the difficulty and MENU_MODE=endless the endless mode.
 ## Usage: MENU=maps scripts/screenshot.sh out.png res://tools/menus.tscn 30 2532x1170
 
@@ -40,7 +41,7 @@ func _ready() -> void:
 			round.set_paused(true)
 			if which == "settings":
 				round.hud._pause_menu.settings_pressed.emit()
-		"won", "lost", "endless_lost":
+		"won", "lost", "endless_lost", "shared":
 			if which == "endless_lost":
 				OS.set_environment("DEMO_STATE", "endless")
 			var demo: Node = load(DEMO).instantiate()
@@ -52,7 +53,7 @@ func _ready() -> void:
 				DirAccess.remove_absolute(ProjectSettings.globalize_path(END_PROGRESS))
 			var game := round.game
 			game.creeps.clear()
-			if which == "won":
+			if which == "won" or which == "shared":
 				game.wave = game.waves.size()
 				game.lives = 17
 				game.phase = Game.Phase.WON
@@ -60,7 +61,11 @@ func _ready() -> void:
 				game.lives = 0
 				game.cleared = game.wave - 1  # endless: the score is the last cleared wave
 				game.phase = Game.Phase.LOST
-			game.game_over.emit(which == "won")
+			game.game_over.emit(which != "lost" and which != "endless_lost")
+			if which == "shared":
+				for i in 24:  # late, so the toast still shows in frame 30
+					await get_tree().process_frame
+				round.hud.share_pressed.emit()
 
 
 ## Some made-up results: Engen won flawlessly, Kløfta won narrowly, a loss on
