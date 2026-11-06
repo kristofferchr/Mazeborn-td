@@ -1,9 +1,10 @@
 class_name TitleScreen
 extends Control
 ## The start screen over the MenuBackdrop: the name, "Spill", "Innstillinger"
-## and the stars earned so far. Look: UiStyle.
+## (with "Vis veiledning") and the stars earned so far. Look: UiStyle.
 
 signal play_pressed
+signal tutorial_pressed  # "Vis veiledning" in the settings
 
 const MARGIN := 64.0
 
@@ -68,6 +69,12 @@ func _build() -> void:
 	_column.add_child(stars)
 
 	_settings = SettingsPanel.new()
+	_settings.show_tutorial_button(true)
+	_settings.tutorial_pressed.connect(
+		func() -> void:
+			_settings.close()
+			tutorial_pressed.emit()
+	)
 	add_child(_settings)
 
 

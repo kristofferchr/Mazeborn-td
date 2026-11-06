@@ -8,7 +8,8 @@ extends Node3D
 ## in the menu, tap a tower to upgrade or sell; drag to pan, pinch to zoom.
 ## The pause button (or Esc, or the app going to the background) pauses the
 ## tree; the pause menu and settings keep working. The result of a finished
-## round is kept in the progress file (Progress).
+## round is kept in the progress file (Progress). With "tutorial" in the
+## options the coach marks guide the player (CoachMarks, Onboarding).
 
 signal retry_requested  # "Prøv igjen" / "Start på nytt": the same map again
 signal maps_requested  # "Velg kart" / "Avslutt til kart": back to the map select
@@ -77,6 +78,8 @@ func _ready() -> void:
 	hud.set_muted(audio.muted)
 	hud.mute_pressed.connect(audio.toggle_muted)
 	audio.muted_changed.connect(hud.set_muted)
+	if Onboarding.is_tutorial(options):  # the guided first round
+		CoachMarks.new().setup(self)
 	game.creep_leaked.connect(func(c: Creep) -> void: camera.shake(_shake_for(c, true)))
 	game.creep_killed.connect(func(c: Creep) -> void: camera.shake(_shake_for(c, false)))
 
@@ -131,7 +134,7 @@ func _watch_record() -> void:
 
 func _on_wave_cleared_record(_number: int) -> void:
 	if Progress.passes_record(_record_wave, game.score()):
-		hud.toast("Rekord!", "Forbi forrige beste: bølge %d" % _record_wave)
+		hud.notify("Rekord!", "Forbi forrige beste: bølge %d" % _record_wave)
 		_record_wave = 0
 
 

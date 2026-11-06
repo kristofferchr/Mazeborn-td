@@ -12,10 +12,10 @@ Tower defense for iOS i klassisk Warcraft 3-stil: 3D-grafikk oppå 2D-logikk på
 
 ```
 game/            Godot-prosjektet
-  core/          spillregler som ren 2D-logikk (Grid, Game, Creep, Tower, Difficulty, Progress), testes headless
+  core/          spillregler som ren 2D-logikk (Grid, Game, Creep, Tower, Difficulty, Progress, Onboarding), testes headless
   data/          bølger og økonomi (waves.json), tårntyper (towers.json), fiendetyper (creeps.json) og vanskelighetsgrader (difficulty.json)
   data/maps/     kart som data: størrelse, portaler, mål, steiner og regler (én JSON per kart)
-  view/          3D-lag, HUD, lyd og menyer som bare leser tilstanden (BoardView, Effects, CameraRig, Hud, HudFx, WaveOverview, GameAudio, TitleScreen, MapSelect, PauseMenu, SettingsPanel, UserSettings)
+  view/          3D-lag, HUD, lyd og menyer som bare leser tilstanden (BoardView, Effects, CameraRig, Hud, HudFx, WaveOverview, Notice, CoachMarks, GameAudio, Haptics, TitleScreen, MapSelect, PauseMenu, SettingsPanel, UserSettings)
   main.tscn      appen: startskjerm, kartvalg, deretter en runde (round.tscn)
   tests/         headless tester (scripts/test.sh)
   tools/         skjermbilde, demo-scener og balanse-bot (ikke med i eksporten)
@@ -38,6 +38,10 @@ Endeløs modus (`Game.create_map(id, seed, {"mode": "endless"})`, velgeren Klass
 
 `game/data/difficulty.json` har Lett, Normal, Vanskelig og Ekstrem. Hver grad skalerer oppsettet etter kartets regler: `hp_scale` (ganges med kartets), `start_gold_scale`, `lives_scale`, `bounty_scale` og `interest_scale`; Normal er uendret. Graden velges i kartvalget og sendes som `{"difficulty": "hard", "mode": "classic"}` til `Game.create_map(id, seed, options)` (ukjente nøkler beholdes i `Game.options`). Beste resultat per kart, grad og modus lagres i `user://progress.cfg` (`Progress`): 1 stjerne for seier, 2 med minst halvparten av livene igjen, 3 uten lekkasjer. Innstillinger (lydstyrke, standard fart, siste valg) ligger i `user://settings.cfg`. Boten bør vinne Lett og Normal, vinne knapt eller tape på Vanskelig og stort sett tape på Ekstrem.
 
+## Veiledning, haptikk og lyd
+
+Første gang man trykker «Spill» (uten lagrede resultater) starter en guidet runde på Engen: bygg et tårn, bygg en vegg så stien blir lengre, start bølgen, oppgrader eller selg, og nedtellingen med «Send nå». Hvert steg går videre når spilleren faktisk gjør det (`Onboarding` lytter på `Game`-signalene), og «Hopp over» avslutter. At den er gjort, lagres i `settings.cfg` (`tutorial_done`), og den kan spilles igjen med «Vis veiledning» i innstillingene på startskjermen. Vibrasjon (`Haptics`) gir et lett støt ved bygg, oppgradering og salg og et kraftigere ved lekkasje og når en boss dør, bare på iOS og Android (av/på i innstillingene). Menyene har egen musikk (`music_menu`) og klikkelyd; appen har én `GameAudio` som går over til rundemusikken når en runde starter. Korte beskjeder øverst vises med `Notice` (`hud.notify()`), f.eks. «Rekord!» når en endeløs runde går forbi forrige beste bølge.
+
 ## Kommandoer
 
 ```bash
@@ -56,5 +60,6 @@ scripts/godot.sh --headless --path game -s res://tools/balance.gd   # bot spille
 scripts/godot.sh --headless --path game -s res://tools/balance.gd -- klofta 7  # ett kart, seed 7
 scripts/godot.sh --headless --path game -s res://tools/balance.gd -- all 3 all  # alle kart på alle grader
 scripts/godot.sh --headless --path game -s res://tools/balance.gd -- all 3 normal endless  # modus: wait (standard), early, endless, endless-early
+COACH=maze scripts/screenshot.sh shot.png res://tools/coach.tscn 40 2532x1170  # veiledning: build, build_selected, maze, start, tower, tower_selected, countdown, done
 MENU=maps scripts/screenshot.sh shot.png res://tools/menus.tscn 30 2532x1170  # menyer: title, title_settings, maps, pause, settings, won, lost
 ```

@@ -1,4 +1,4 @@
-class_name Toast
+class_name Notice
 extends Control
 ## Short notices that drop in at the top centre, stay a moment and fade out
 ## ("Rekord!", "Veiledningen er ferdig"). One shows at a time; later ones wait
@@ -51,7 +51,7 @@ func _init() -> void:
 
 ## Shows a notice now, or after the ones already waiting. `icon` is a UiIcon
 ## kind ("" for none). Returns false when the queue is full (it is dropped).
-func show_toast(title: String, sub := "", icon := "star", color := UiStyle.ACCENT) -> bool:
+func show_notice(title: String, sub := "", icon := "star", color := UiStyle.ACCENT) -> bool:
 	var notice := {"title": title, "sub": sub, "icon": icon, "color": color}
 	if not current.is_empty() or not queue.is_empty():
 		if queue.size() >= MAX_QUEUE:

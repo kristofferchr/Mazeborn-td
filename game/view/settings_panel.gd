@@ -53,9 +53,17 @@ func _init() -> void:
 	_vibration = _choice_row("Vibrasjon", hint, on_off, 0 if settings.vibration else 1)
 	_vibration.changed.connect(_on_vibration)
 	box.add_child(_gap(10))
+	# "Vis veiledning" (when shown) and "Ferdig" share a row, so the card fits.
+	var buttons := HBoxContainer.new()
+	buttons.add_theme_constant_override("separation", 16)
+	box.add_child(buttons)
 	_tutorial = add_button("Vis veiledning", "secondary", func() -> void: tutorial_pressed.emit())
 	_tutorial.visible = false
-	add_button("Ferdig", "primary", close)
+	var done := add_button("Ferdig", "primary", close)
+	for b: Button in [_tutorial, done]:
+		box.remove_child(b)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		buttons.add_child(b)
 
 
 ## Shows the panel with the saved settings.

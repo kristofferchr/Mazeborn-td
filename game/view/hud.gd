@@ -5,7 +5,8 @@ extends CanvasLayer
 ## left), the build menu and tower panel, health bars, floating gold, the mute
 ## and pause buttons, the pause menu with the settings, and the end screen
 ## (stars, record). Damage numbers, wave banners and the leak glow: HudFx.
-## Short notices: toast(). Other layers (the coach marks) go in with add_layer.
+## Short notices at the top: notify() (Notice). Other layers (the coach marks)
+## go in with add_layer.
 ## Reads the game state; user actions are sent out as signals. Look: UiStyle.
 
 signal start_wave_pressed
@@ -106,7 +107,7 @@ var _end_stats: Label
 var _bars: Control
 var _floaters: Control
 var _fx: HudFx
-var _toast: Toast
+var _notice: Notice
 var _thumbs: Dictionary = {}  # "kind:level:element" -> ViewportTexture
 var _thumb_life: Dictionary = {}  # SubViewport -> frames left to render
 var _ui: Array[Control] = []  # controls that swallow taps
@@ -125,9 +126,9 @@ func setup(p_game: Game, p_board: BoardView, p_camera: Camera3D) -> void:
 	_layout()
 
 
-## Shows a short notice at the top (see Toast). Returns false if it was dropped.
-func toast(title: String, sub := "", icon := "star", color := UiStyle.ACCENT) -> bool:
-	return _toast.show_toast(title, sub, icon, color)
+## Shows a short notice at the top (see Notice). Returns false if it was dropped.
+func notify(title: String, sub := "", icon := "star", color := UiStyle.ACCENT) -> bool:
+	return _notice.show_notice(title, sub, icon, color)
 
 
 ## Adds a layer over the map and the HUD, under the menus and the end screen.
@@ -463,8 +464,8 @@ func _build() -> void:
 	_root.add_child(_fx)
 	_fx.setup(game, board, camera)
 	_floaters = _overlay()
-	_toast = Toast.new()
-	_root.add_child(_toast)
+	_notice = Notice.new()
+	_root.add_child(_notice)
 
 	# Resources: one pill with gold, lives and wave.
 	_top = PanelContainer.new()
@@ -865,7 +866,7 @@ func _layout() -> void:
 	_mute.size = _mute.custom_minimum_size
 	_mute.position = Vector2(_speed.position.x - 12.0 - _mute.size.x, top)
 	_fx.banner_top = top + maxf(_top.size.y, _speed.size.y) + 18.0
-	_toast.top = _fx.banner_top + 108.0  # under a wave banner
+	_notice.top = _fx.banner_top + 108.0  # under a wave banner
 	_start.size = _start.custom_minimum_size
 	_start.position = Vector2(right - _start.size.x, bottom - _start.size.y)
 	_next.reset_size()
