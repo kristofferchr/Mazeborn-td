@@ -5,7 +5,9 @@ extends Node
 ## select and freed during a round. Menus run at MENU_FPS. "Prøv igjen" starts
 ## the same map and options again; "Velg kart" and "Avslutt til kart" go back
 ## to the map select. The last map, difficulty and mode are kept in the
-## settings (UserSettings).
+## settings (UserSettings). One GameAudio lives here for the whole app: menu
+## music and button clicks in the menus, handed to each round (which
+## crossfades to its own music).
 
 const ROUND := preload("res://round.tscn")
 const MENU_FPS := 30
@@ -14,9 +16,12 @@ var backdrop: MenuBackdrop
 var title: TitleScreen
 var menu: MapSelect
 var current_round: Round
+var audio: GameAudio
 
 
 func _ready() -> void:
+	audio = GameAudio.new()
+	add_child(audio)
 	show_title()
 
 
@@ -36,6 +41,7 @@ func show_title() -> void:
 	title = TitleScreen.new()
 	title.play_pressed.connect(show_menu, CONNECT_DEFERRED)
 	add_child(title)
+	audio.play_menu()
 
 
 func show_menu() -> void:
@@ -51,6 +57,7 @@ func show_menu() -> void:
 	menu.play_pressed.connect(play, CONNECT_DEFERRED)
 	menu.back_pressed.connect(show_title, CONNECT_DEFERRED)
 	add_child(menu)
+	audio.play_menu()
 
 
 ## Starts a round. options go to Game.create_map as they are (difficulty and
@@ -68,6 +75,7 @@ func play(map_id: String, options: Dictionary = {}) -> void:
 	current_round = ROUND.instantiate() as Round
 	current_round.map_id = map_id
 	current_round.options = options.duplicate(true)
+	current_round.audio = audio
 	current_round.retry_requested.connect(play.bind(map_id, options), CONNECT_DEFERRED)
 	current_round.maps_requested.connect(show_menu, CONNECT_DEFERRED)
 	add_child(current_round)

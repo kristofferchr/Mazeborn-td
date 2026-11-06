@@ -70,8 +70,9 @@ func _ready() -> void:
 	Haptics.watch(game)
 	_watch_record()
 
-	audio = GameAudio.new()
-	add_child(audio)
+	if audio == null:  # on its own; in the app the menus' GameAudio carries on
+		audio = GameAudio.new()
+		add_child(audio)
 	audio.setup(game)
 	hud.set_muted(audio.muted)
 	hud.mute_pressed.connect(audio.toggle_muted)

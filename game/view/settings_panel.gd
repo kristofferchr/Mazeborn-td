@@ -32,6 +32,7 @@ func _init() -> void:
 	_sfx_value = _sfx.get_meta("value")
 	_music.value_changed.connect(_on_volume)
 	_sfx.value_changed.connect(_on_volume)
+	_sfx.value_changed.connect(func(_v: float) -> void: _preview_sfx())
 	for s: HSlider in [_music, _sfx]:
 		s.drag_ended.connect(func(_changed: bool) -> void: settings.save())
 	box.add_child(_gap(4))
@@ -91,6 +92,12 @@ func _on_volume(_value: float) -> void:
 	settings.sfx_volume = _sfx.value
 	GameAudio.set_volumes(settings.music_volume, settings.sfx_volume)
 	_show_values()
+
+
+## A click at the new effects volume (from the GameAudio in the tree, if any).
+func _preview_sfx() -> void:
+	if is_inside_tree():
+		get_tree().call_group(GameAudio.GROUP, "play_event", "click")
 
 
 func _on_vibration(i: int) -> void:
