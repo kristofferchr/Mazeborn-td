@@ -32,6 +32,7 @@ var build_kind := "arrow"  # tower kind chosen in the build menu
 var _touches: Dictionary = {}  # index -> position
 var _tap_start := Vector2.ZERO
 var _tap_valid := false
+var _record_wave := 0  # endless: the best wave before this round (0: no notice)
 
 
 func _ready() -> void:
@@ -65,6 +66,7 @@ func _ready() -> void:
 	hud.resume_pressed.connect(set_paused.bind(false))
 	hud.set_speed_text("%dx" % int(speed))
 	game.game_over.connect(_on_game_over)
+	_watch_record()
 
 	audio = GameAudio.new()
 	add_child(audio)
@@ -111,6 +113,23 @@ func _on_game_over(_won: bool) -> void:
 		if progress.record(map_id, game.difficulty, result):
 			progress.save()
 	hud.show_result(int(result.stars), record)
+
+
+## Endless: a "Rekord!" notice the first time the round passes the best wave
+## reached before.
+func _watch_record() -> void:
+	if progress_path == "" or Progress.mode_of(game.options) != Progress.ENDLESS:
+		return
+	var best := Progress.open(progress_path).best(map_id, game.difficulty, Progress.ENDLESS)
+	_record_wave = int(best.get("wave", 0))
+	if _record_wave > 0:
+		game.wave_cleared.connect(_on_wave_cleared_record)
+
+
+func _on_wave_cleared_record(_number: int) -> void:
+	if Progress.passes_record(_record_wave, game.score()):
+		hud.toast("Rekord!", "Forbi forrige beste: bølge %d" % _record_wave)
+		_record_wave = 0
 
 
 ## Restarts the map: the app (main.gd) makes a new round; on its own the scene

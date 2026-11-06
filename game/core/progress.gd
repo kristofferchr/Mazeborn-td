@@ -94,6 +94,17 @@ static func is_new_record(previous: Dictionary, result: Dictionary) -> bool:
 	return str(result.get("mode", CLASSIC)) == ENDLESS and int(result.get("wave", 0)) > 0
 
 
+## True when an endless round's score (the last wave cleared) has just gone
+## past the best wave before it (0: no earlier record, nothing to pass).
+static func passes_record(previous_wave: int, score: int) -> bool:
+	return previous_wave > 0 and score > previous_wave
+
+
+## True if no result has been kept yet (a first-time player).
+func is_empty() -> bool:
+	return _best.is_empty()
+
+
 ## Best result on a map, difficulty and mode, {} if never played.
 func best(map_id: String, difficulty: String, mode := CLASSIC) -> Dictionary:
 	return _best.get(_key(map_id, difficulty, mode), {})

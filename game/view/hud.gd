@@ -5,6 +5,7 @@ extends CanvasLayer
 ## left), the build menu and tower panel, health bars, floating gold, the mute
 ## and pause buttons, the pause menu with the settings, and the end screen
 ## (stars, record). Damage numbers, wave banners and the leak glow: HudFx.
+## Short notices: toast(). Other layers (the coach marks) go in with add_layer.
 ## Reads the game state; user actions are sent out as signals. Look: UiStyle.
 
 signal start_wave_pressed
@@ -105,6 +106,7 @@ var _end_stats: Label
 var _bars: Control
 var _floaters: Control
 var _fx: HudFx
+var _toast: Toast
 var _thumbs: Dictionary = {}  # "kind:level:element" -> ViewportTexture
 var _thumb_life: Dictionary = {}  # SubViewport -> frames left to render
 var _ui: Array[Control] = []  # controls that swallow taps
@@ -121,6 +123,26 @@ func setup(p_game: Game, p_board: BoardView, p_camera: Camera3D) -> void:
 	game.countdown_tick.connect(_on_countdown_tick)
 	get_viewport().size_changed.connect(_layout)
 	_layout()
+
+
+## Shows a short notice at the top (see Toast). Returns false if it was dropped.
+func toast(title: String, sub := "", icon := "star", color := UiStyle.ACCENT) -> bool:
+	return _toast.show_toast(title, sub, icon, color)
+
+
+## Adds a layer over the map and the HUD, under the menus and the end screen.
+## Taps on `blockers` (controls in it) are kept from the map like the HUD's own.
+func add_layer(layer: Control, blockers: Array[Control] = []) -> void:
+	_root.add_child(layer)
+	_root.move_child(layer, _end.get_index())
+	_ui.append_array(blockers)
+
+
+## Screen rectangle of a HUD control others point at: "start" (the start
+## button), "build" (the build button) or "panel" (the selection panel).
+func anchor_rect(what: String) -> Rect2:
+	var c: Control = {"start": _start, "build": _build_button, "panel": _panel}.get(what)
+	return c.get_global_rect() if c and c.is_visible_in_tree() else Rect2()
 
 
 ## True if a screen position is on a HUD control (so the tap is not for the map).
@@ -147,7 +169,7 @@ func show_selection(
 	_pips.visible = tower != null
 	if tower == null:
 		_info_title.text = game.tower_name(build_kind)
-		_info_stats.text = _describe(build_kind, game.tower_base_stats(build_kind))
+		_info_stats.text = TowerText.describe(game, build_kind, game.tower_base_stats(build_kind))
 		for kind: String in _kind_cards:
 			var card: Button = _kind_cards[kind]
 			card.button_pressed = kind == build_kind
@@ -158,7 +180,7 @@ func show_selection(
 		_build_button.disabled = not buildable
 	else:
 		_info_title.text = tower.display_name()
-		_info_stats.text = _describe(tower.kind, tower.stats())
+		_info_stats.text = TowerText.describe(game, tower.kind, tower.stats())
 		_tower_thumb.texture = _thumb(tower.kind, tower.level, tower.element())
 		for i in _pips.get_child_count():
 			var pip := _pips.get_child(i) as Panel
@@ -379,42 +401,6 @@ func _upgrade_card(tower: Tower, option: String) -> Button:
 	return card
 
 
-## One line of stats and effects for a tower kind at some level.
-func _describe(kind: String, s: Dictionary) -> String:
-	var parts: Array[String] = [
-		"Skade %d–%d" % [int(s.damage_min), int(s.damage_max)],
-		"%.1f/s" % (1.0 / float(s.cooldown)),
-		"rekkevidde %.1f" % float(s.range),
-	]
-	if s.has("splash_radius"):
-		parts.append("splash %.1f" % float(s.splash_radius))
-	if s.has("slow"):
-		parts.append("sakker ned %d %%" % roundi(float(s.slow) * 100.0))
-	if s.has("poison_dps"):
-		var what := "brann" if str(s.get("element", "")) == "fire" else "gift"
-		parts.append("%s %d/s ×%d" % [what, int(s.poison_dps), int(s.get("poison_stacks", 1))])
-	if s.has("stun"):
-		parts.append("stun %.1fs" % float(s.stun))
-	if s.has("knockback"):
-		parts.append("skyver tilbake")
-	if s.has("air_multiplier"):
-		parts.append("×%.1f mot luft" % float(s.air_multiplier))
-	if s.has("chain"):
-		parts.append("hopper %d" % int(s.chain))
-	if s.has("multishot"):
-		parts.append("%d mål" % int(s.multishot))
-	if s.get("armor_pierce", false):
-		parts.append("gjennom rustning")
-	if s.get("reveal", false):
-		parts.append("avslører usynlige")
-	var targets: Array = game.tower_defs[kind].get("targets", ["ground"])
-	if "air" in targets and "ground" in targets:
-		parts.append("bakke og luft")
-	elif "air" in targets:
-		parts.append("bare luft")
-	return "  ·  ".join(parts)
-
-
 ## Card above the start button: what the next wave holds.
 func _update_next_wave() -> void:
 	var shown := game.wave if not game.is_over() else -1
@@ -477,6 +463,8 @@ func _build() -> void:
 	_root.add_child(_fx)
 	_fx.setup(game, board, camera)
 	_floaters = _overlay()
+	_toast = Toast.new()
+	_root.add_child(_toast)
 
 	# Resources: one pill with gold, lives and wave.
 	_top = PanelContainer.new()
@@ -877,6 +865,7 @@ func _layout() -> void:
 	_mute.size = _mute.custom_minimum_size
 	_mute.position = Vector2(_speed.position.x - 12.0 - _mute.size.x, top)
 	_fx.banner_top = top + maxf(_top.size.y, _speed.size.y) + 18.0
+	_toast.top = _fx.banner_top + 108.0  # under a wave banner
 	_start.size = _start.custom_minimum_size
 	_start.position = Vector2(right - _start.size.x, bottom - _start.size.y)
 	_next.reset_size()

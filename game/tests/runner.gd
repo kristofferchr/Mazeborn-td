@@ -9,6 +9,8 @@ var _current := ""
 
 
 func _initialize() -> void:
+	# Wait one frame so the root is in the tree: nodes a test adds get _ready.
+	await process_frame
 	var files := _find_tests(TESTS_DIR)
 	var count := 0
 	for file in files:
