@@ -52,8 +52,34 @@ func test_ribbons_skip_short_lines_and_count_vertices() -> void:
 		Color.WHITE
 	)
 	r.end()
-	t.eq(r.vertex_count(), 12, "two quads")
+	t.eq(r.vertex_count(), 6, "two quads on three point pairs")
 	r.free()
+
+
+## MultiMesh colour and custom data are half floats in the Compatibility
+## renderer (max 65504, coarse far from 0): rotations are wrapped, so even
+## hours of play stay precise.
+func test_instance_data_stays_half_float_safe() -> void:
+	var s := FxSprites.new()
+	s.setup(4, null)
+	s.step(0.0)
+	s.draw(Vector3.ZERO, 0.2, Color.WHITE, FxArt.STAR, 4.0 * 5.0 * 3600.0)  # _time * 4 after 5 h
+	s.draw(Vector3.ZERO, 0.2, Color.WHITE, FxArt.FLARE, -3.0 * 5.0 * 3600.0)
+	s.spawn(Vector3.ZERO, Vector3.ZERO, 1e6, 0.1, 0.1, Color.WHITE, FxArt.LEAF, Vector3(0, 0, 8.0))
+	for i in 600:
+		s.step(30.0)  # 5 h of spinning
+	s.draw(Vector3.ZERO, 0.2, Color.WHITE, FxArt.STAR, 1e7)
+	_check_half_safe(s, "sprites")
+	s.free()
+
+
+func _check_half_safe(s: FxSprites, what: String) -> void:
+	var buf := s.buffer()
+	for i in s.drawn():
+		var o := i * FxSprites.STRIDE
+		for k in range(12, 20):
+			t.check(absf(buf[o + k]) < 1000.0, "%s %d: value %d is %f" % [what, i, k, buf[o + k]])
+		t.check(buf[o + 17] >= 0.0 and buf[o + 17] <= TAU, "%s %d: rotation wrapped" % [what, i])
 
 
 func test_trim_cuts_a_trail_to_its_length() -> void:
@@ -119,6 +145,9 @@ func test_busy_fight_reuses_nodes() -> void:
 	for i in 90:
 		fx.update(Game.DT)
 	t.eq(fx.active(), Vector2i.ZERO, "no shots or bolts left")
+	fx._time = 5.0 * 3600.0  # five hours in
+	fx.update(Game.DT)
+	_check_half_safe(fx.glow, "glow after 5 h")
 	t.eq(fx.models_drawn(), 0, "no models drawn")
 	t.eq(fx.glow.count + fx.dust.count, 0, "particles gone")
 	board.free()

@@ -69,6 +69,11 @@ func creep_scale(creep: Creep) -> float:
 	return clampf(0.95 + creep.max_hp / 4000.0, 1.0, 1.15)
 
 
+## True while a creep is drawn alive on the board (not dead or leaked).
+func shows_creep(creep: Creep) -> bool:
+	return _creeps.has(creep.id)
+
+
 ## Height of the top of a creep above its position (for the health bar).
 func creep_top(creep: Creep) -> float:
 	return CreepArt.top(_creep_models.get(creep.id, CreepArt.DEFAULT)) * creep_scale(creep)

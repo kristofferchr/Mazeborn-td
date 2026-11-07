@@ -29,15 +29,18 @@ static var _meshes: Dictionary = {}
 static func atlas() -> ImageTexture:
 	if _atlas == null:
 		var size := CELLS * CELL_PX
-		var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
+		var data := PackedByteArray()
+		data.resize(size * size * 4)
+		data.fill(0)
 		for cell in 13:
-			_paint(img, cell)
+			_paint(data, size, cell)
+		var img := Image.create_from_data(size, size, false, Image.FORMAT_RGBA8, data)
 		img.generate_mipmaps()
 		_atlas = ImageTexture.create_from_image(img)
 	return _atlas
 
 
-static func _paint(img: Image, cell: int) -> void:
+static func _paint(data: PackedByteArray, size: int, cell: int) -> void:
 	var ox := (cell % CELLS) * CELL_PX
 	var oy := (cell / CELLS) * CELL_PX
 	var half := CELL_PX * 0.5
@@ -46,7 +49,11 @@ static func _paint(img: Image, cell: int) -> void:
 			# -1..1 with a pixel of margin so mipmaps do not bleed.
 			var p := Vector2((x + 0.5 - half) / (half - 1.5), (y + 0.5 - half) / (half - 1.5))
 			var v := _shape(cell, p)
-			img.set_pixel(ox + x, oy + y, Color(clampf(v.x, 0, 1), 1, 1, clampf(v.y, 0, 1)))
+			var o := ((oy + y) * size + ox + x) * 4
+			data[o] = int(clampf(v.x, 0.0, 1.0) * 255.0)
+			data[o + 1] = 255
+			data[o + 2] = 255
+			data[o + 3] = int(clampf(v.y, 0.0, 1.0) * 255.0)
 
 
 ## (core, alpha) of a cell at p in -1..1.

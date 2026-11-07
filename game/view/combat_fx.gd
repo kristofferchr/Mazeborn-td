@@ -74,6 +74,7 @@ class Shot:
 	var phase := 0.0
 	var reveal := false
 	var trail_length := 0.6
+	var h1 := 0.0  # height of the target's middle, kept once the creep is gone
 
 
 ## A lightning bolt between two points; the end follows its creep.
@@ -204,7 +205,9 @@ func _start_shot(p: Projectile) -> Shot:
 	var cell := Vector2i(floori(p.pos.x), floori(p.pos.y))
 	s.h0 = board.tower_top(cell)
 	s.pos = Vector3(p.pos.x, s.h0, p.pos.y)
-	s.dir = Vector3.FORWARD
+	s.h1 = _target_height(p.target)
+	var aim := Vector3(p.target_pos.x, s.h1, p.target_pos.y) - s.pos
+	s.dir = aim.normalized() if aim.length_squared() > 0.000001 else Vector3.FORWARD
 	s.trail.resize(0)
 	s.trail.append(s.pos)
 	s.fading = -1.0
@@ -227,7 +230,9 @@ func _fly(s: Shot, p: Projectile, a: float, dt: float) -> void:
 	var done := s.start.distance_to(flat)
 	var left := flat.distance_to(p.target_pos)
 	var f := clampf(done / (done + left + 0.0001), 0.0, 1.0)
-	var h1 := board.creep_top(p.target) * 0.5 + (BoardView.FLY_HEIGHT if p.target.flying else 0.0)
+	if board.shows_creep(p.target):
+		s.h1 = _target_height(p.target)
+	var h1 := s.h1
 	var high := s.style == "earth" or p.stats.has("splash_radius")
 	var arc := (0.35 if high else 0.1) * (done + left) * sin(PI * f)
 	var pos := Vector3(flat.x, lerpf(s.h0, h1, f) + arc, flat.y)
@@ -257,6 +262,10 @@ func _fly(s: Shot, p: Projectile, a: float, dt: float) -> void:
 				s.roll += dt * 6.0
 				basis = basis * Basis(Vector3.BACK, s.roll)
 		_add_model(s.model, Transform3D(basis.scaled(Vector3.ONE * s.size), pos))
+
+
+func _target_height(creep: Creep) -> float:
+	return board.creep_top(creep) * 0.5 + (BoardView.FLY_HEIGHT if creep.flying else 0.0)
 
 
 ## Cuts a trail (oldest point first) to `length` cells behind its head.

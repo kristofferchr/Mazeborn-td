@@ -23,10 +23,12 @@ var _color := PackedColorArray()
 # Per particle: age, life, size0, size1, gravity, drag, rotation, spin.
 var _f := PackedFloat32Array()
 var _cell := PackedInt32Array()  # atlas cell, + 100 when flat on the ground
+var _rng := RandomNumberGenerator.new()
 
 
 func setup(p_capacity: int, material: Material) -> void:
 	capacity = p_capacity
+	_rng.seed = 777
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.use_colors = true
@@ -66,7 +68,7 @@ func spawn(
 	cell: int,
 	motion := Vector3.ZERO,
 ) -> bool:
-	var rot := randf() * TAU if motion.z != 0.0 else 0.0
+	var rot := _rng.randf() * TAU if motion.z != 0.0 else 0.0
 	return _add(at, vel, life, Vector2(size0, size1), color, cell, motion, rot)
 
 
@@ -153,6 +155,11 @@ func drawn() -> int:
 	return _drawn
 
 
+## This frame's instance data (for tests).
+func buffer() -> PackedFloat32Array:
+	return _buf
+
+
 func _write(
 	at: Vector3, size: float, c: Color, cell: int, rot: float, flat: bool, stretch: float
 ) -> void:
@@ -169,7 +176,7 @@ func _write(
 	_buf[o + 14] = c.b
 	_buf[o + 15] = c.a
 	_buf[o + 16] = cell
-	_buf[o + 17] = rot
+	_buf[o + 17] = fposmod(rot, TAU)  # custom data is half floats in GLES3
 	_buf[o + 18] = 1.0 if flat else 0.0
 	_buf[o + 19] = stretch
 
