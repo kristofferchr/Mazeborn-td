@@ -13,21 +13,21 @@ const MEDIEVAL := "res://assets/kaykit_medieval/"
 const MODELS := {
 	"arrow":
 	[
-		["building_tower_base_yellow", 0.48],
-		["building_tower_A_yellow", 0.58],
-		["building_tower_B_yellow", 0.68],
+		["building_tower_base_yellow", 0.54],
+		["building_tower_A_yellow", 0.66],
+		["building_tower_B_yellow", 0.77],
 	],
 	"earth":
 	[
-		["building_mine_green", 0.42],
-		["building_tower_catapult_green", 0.58],
-		["building_castle_green", 0.42],
+		["building_mine_green", 0.47],
+		["building_tower_catapult_green", 0.66],
+		["building_castle_green", 0.47],
 	],
 	"wind":
 	[
-		["building_windmill_blue", 0.52],
-		["building_windmill_blue", 0.64],
-		["building_windmill_blue", 0.76],
+		["building_windmill_blue", 0.58],
+		["building_windmill_blue", 0.72],
+		["building_windmill_blue", 0.85],
 	],
 }
 ## Foundation radius and height per level.
@@ -101,8 +101,8 @@ static func _plinth(root: Node3D, kind: String, level: int) -> float:
 ## a crown of fins) and a turning crystal above it. Returns the crystal top.
 static func _spire(root: Node3D, base: float, level: int, element: String) -> float:
 	var color: Color = BoardView.ELEMENT_COLORS.get(element, BoardView.ELEMENT_COLORS[""])
-	var tall := 0.55 + 0.22 * level
-	var r := 0.17 + 0.025 * level
+	var tall := 0.62 + 0.25 * level
+	var r := 0.19 + 0.028 * level
 	_part(root, _prism(r, r * 0.62, tall, 6), _mat("arcane", ARCANE_STONE), base)
 	var band := _part(
 		root, _prism(r * 0.86, r * 0.84, 0.05, 6), _glow_mat(color, 0.6), base + tall * 0.55
@@ -117,7 +117,7 @@ static func _spire(root: Node3D, base: float, level: int, element: String) -> fl
 			)
 			fin.position = Vector3(cos(a) * r * 0.62, crown - 0.04, sin(a) * r * 0.62)
 			fin.rotation = Vector3(sin(a) * 0.28, 0.0, -cos(a) * 0.28)
-	var size := 0.17 + 0.05 * level
+	var size := 0.19 + 0.055 * level
 	var pivot := Node3D.new()
 	pivot.position.y = crown + 0.12 + size * 0.4
 	root.add_child(pivot)
