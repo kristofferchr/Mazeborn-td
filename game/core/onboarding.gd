@@ -81,8 +81,29 @@ func attach(p_game: Game) -> void:
 	game.tower_built.connect(_on_built)
 	game.path_changed.connect(_on_path)
 	game.wave_started.connect(_on_wave_started)
-	game.tower_upgraded.connect(func(_t: Tower) -> void: _on_tower_changed())
-	game.tower_sold.connect(func(_t: Tower, _r: int) -> void: _on_tower_changed())
+	game.tower_upgraded.connect(_on_upgraded)
+	game.tower_sold.connect(_on_sold)
+	game.game_over.connect(_on_game_over)
+
+
+## Lets go of the game (when the steps are done or the round is over). The
+## connections are method callables, so they never keep this object or the
+## game alive on their own.
+func detach() -> void:
+	if game == null:
+		return
+	for pair: Array in [
+		[game.tower_built, _on_built],
+		[game.path_changed, _on_path],
+		[game.wave_started, _on_wave_started],
+		[game.tower_upgraded, _on_upgraded],
+		[game.tower_sold, _on_sold],
+		[game.game_over, _on_game_over],
+	]:
+		var sig: Signal = pair[0]
+		if sig.is_connected(pair[1]):
+			sig.disconnect(pair[1])
+	game = null
 
 
 func is_active() -> bool:
@@ -130,6 +151,18 @@ func _on_wave_started(_number: int) -> void:
 		_go(step + 1)
 
 
+func _on_upgraded(_tower: Tower) -> void:
+	_on_tower_changed()
+
+
+func _on_sold(_tower: Tower, _refund: int) -> void:
+	_on_tower_changed()
+
+
+func _on_game_over(_won: bool) -> void:
+	detach()
+
+
 func _on_tower_changed() -> void:
 	tower_changed = true
 	if step == Step.TOWER:
@@ -149,4 +182,5 @@ func _go(to: int) -> void:
 		return
 	step_changed.emit(step)
 	if step == Step.DONE:
+		detach()
 		finished.emit(skipped)

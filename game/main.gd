@@ -85,10 +85,11 @@ func play_tutorial() -> void:
 ## and "Prøv igjen" plays it again only while it is not done.
 func play(map_id: String, options: Dictionary = {}) -> void:
 	var settings := UserSettings.open()
-	if Onboarding.is_tutorial(options) and settings.tutorial_done:
+	var guided := Onboarding.is_tutorial(options)  # also "Prøv igjen" after it
+	if guided and settings.tutorial_done:
 		options = options.duplicate()
 		options.erase("tutorial")
-	if not Onboarding.is_tutorial(options):
+	if not guided:  # the guided round never changes the menu choices
 		settings.map_id = map_id
 		settings.difficulty = str(options.get("difficulty", settings.difficulty))
 		settings.mode = Progress.mode_of(options)
@@ -101,7 +102,10 @@ func play(map_id: String, options: Dictionary = {}) -> void:
 	current_round.map_id = map_id
 	current_round.options = options.duplicate(true)
 	current_round.audio = audio
-	current_round.retry_requested.connect(play.bind(map_id, options), CONNECT_DEFERRED)
+	var again := options.duplicate()
+	if guided:
+		again["tutorial"] = true  # keeps the menu choices alone; shown only while not done
+	current_round.retry_requested.connect(play.bind(map_id, again), CONNECT_DEFERRED)
 	current_round.maps_requested.connect(show_menu, CONNECT_DEFERRED)
 	add_child(current_round)
 

@@ -135,7 +135,10 @@ func notify(title: String, sub := "", icon := "star", color := UiStyle.ACCENT) -
 ## Taps on `blockers` (controls in it) are kept from the map like the HUD's own.
 func add_layer(layer: Control, blockers: Array[Control] = []) -> void:
 	_root.add_child(layer)
-	_root.move_child(layer, _end.get_index())
+	var below := _root.get_child_count() - 1
+	for c: Control in [_end, _pause_menu, _settings]:
+		below = mini(below, c.get_index())
+	_root.move_child(layer, below)
 	_ui.append_array(blockers)
 
 

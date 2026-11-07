@@ -127,3 +127,34 @@ func test_offered_only_to_new_players() -> void:
 	var g := Game.create_map(Onboarding.MAP, 1, Onboarding.options())
 	t.check(Onboarding.is_tutorial(g.options), "the game keeps the key")
 	t.eq(Progress.mode_of(g.options), Progress.CLASSIC, "a classic round")
+
+
+func test_nothing_is_kept_alive_after_the_round() -> void:
+	var r := _start()
+	var game: Game = r[0]
+	var ob: Onboarding = r[1]
+	var cell := Onboarding.suggest_cell(game)
+	game.build(cell, "arrow")
+	game.gold = 500
+	game.upgrade(cell)
+	game.sell(cell)
+	var game_ref: WeakRef = weakref(game)
+	var ob_ref: WeakRef = weakref(ob)
+	r.clear()
+	game = null
+	ob = null
+	t.check(game_ref.get_ref() == null, "the game is freed")
+	t.check(ob_ref.get_ref() == null, "the onboarding is freed")
+
+
+func test_detach_lets_go_of_the_game() -> void:
+	var r := _start()
+	var game: Game = r[0]
+	var ob: Onboarding = r[1]
+	var before := game.tower_built.get_connections().size()
+	ob.skip()
+	t.check(ob.game == null, "let go when done")
+	t.eq(game.tower_built.get_connections().size(), before - 1, "disconnected")
+	var r2 := _start()
+	(r2[0] as Game).game_over.emit(false)
+	t.check((r2[1] as Onboarding).game == null, "let go when the round is over")

@@ -3,12 +3,15 @@ extends Control
 ## The guided first round on screen (Onboarding): a card at the left with the
 ## step ("1 av 5"), a title, a short text and "Hopp over", and gold marks that
 ## point at what to tap: a bouncing arrow and glowing cells on the map, or a
-## ring around a HUD button. The round goes on as usual; only taps on the card
-## are kept from the map (Hud.add_layer). When the steps are done, or skipped,
+## ring around a HUD button. The round goes on as usual and taps go through the
+## card to the map; only "Hopp over" takes them (Hud.add_layer). The card sits
+## bottom left, and small at the top left while the selection panel is open,
+## clear of the spawn and the portal. When the steps are done, or skipped,
 ## a notice says so and "done" is kept in the settings (UserSettings).
 ## Look: UiStyle.
 
 const CARD_WIDTH := 470.0
+const COMPACT_WIDTH := 300.0  # while the selection panel is open
 const BOB := 10.0  # pixels the arrow bobs
 const NO_CELL := Vector2i(-1, -1)
 
@@ -45,7 +48,7 @@ func setup(p_round: Round) -> void:
 	onboarding.step_changed.connect(func(_s: Onboarding.Step) -> void: _stale = true)
 	round.game.path_changed.connect(func() -> void: _stale = true)
 	round.game.game_over.connect(func(_won: bool) -> void: hide())
-	round.hud.add_layer(self, [_card] as Array[Control])
+	round.hud.add_layer(self, [_skip] as Array[Control])
 	_refresh()
 
 
@@ -59,7 +62,7 @@ func _build() -> void:
 	style.content_margin_top = 16
 	style.content_margin_bottom = 18
 	_card.add_theme_stylebox_override("panel", style)
-	_card.mouse_filter = Control.MOUSE_FILTER_STOP
+	_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_card.custom_minimum_size = Vector2(CARD_WIDTH, 0)
 	add_child(_card)
 	var col := VBoxContainer.new()
@@ -100,6 +103,10 @@ func _build() -> void:
 	_extra = UiStyle.chip("", UiStyle.GOOD.darkened(0.45), 19)
 	_extra.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	col.add_child(_extra)
+	# Taps go through the card to the map, except on "Hopp over".
+	for c: Node in _card.find_children("*", "Control", true, false):
+		if c != _skip:
+			(c as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 
 ## The texts and marks for the step, given what is selected now.
@@ -211,13 +218,27 @@ func _process(delta: float) -> void:
 ## while the selection panel takes the bottom left.
 func _layout() -> void:
 	var inset := UiStyle.safe_insets(get_viewport())
+	var compact := round.hud.anchor_rect("panel").has_area()
+	_set_compact(compact)
 	_card.reset_size()
 	var x: float = Hud.MARGIN + inset.left
-	if round.hud.anchor_rect("panel").has_area():
-		_card.position = Vector2(x, Hud.MARGIN + inset.top + 92.0)
+	if compact:
+		_card.position = Vector2(x, Hud.MARGIN + inset.top + 84.0)
 	else:
 		var bottom: float = get_viewport_rect().size.y - Hud.MARGIN - inset.bottom
 		_card.position = Vector2(x, bottom - _card.size.y)
+
+
+## The small card: narrower, smaller text, no dots and no path line.
+func _set_compact(on: bool) -> void:
+	_card.custom_minimum_size.x = COMPACT_WIDTH if on else CARD_WIDTH
+	_dots.visible = not on
+	_title.add_theme_font_size_override("font_size", 21 if on else 27)
+	_body.add_theme_font_size_override("font_size", 15 if on else 19)
+	_skip.add_theme_font_size_override("font_size", 16 if on else 19)
+	_skip.custom_minimum_size.y = 40 if on else 48
+	if on:
+		_extra.visible = false
 
 
 func _draw() -> void:
