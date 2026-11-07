@@ -1,9 +1,8 @@
-// Land around the playfield: darker grass with large soft patches.
+// Land around the plateau: colours come from the vertices (grass shades,
+// banks and the darker distance, in sRGB), with a fine noise grain on top.
 shader_type spatial;
 
 uniform sampler2D noise : filter_linear_mipmap, repeat_enable;
-uniform vec3 color_a : source_color = vec3(0.13, 0.22, 0.12);
-uniform vec3 color_b : source_color = vec3(0.19, 0.30, 0.15);
 
 varying vec2 world_xz;
 
@@ -12,8 +11,8 @@ void vertex() {
 }
 
 void fragment() {
-	float n = texture(noise, world_xz * 0.03).r;
-	float fine = texture(noise, world_xz * 0.25).r;
-	ALBEDO = mix(color_a, color_b, smoothstep(0.3, 0.7, n)) * (0.92 + fine * 0.16);
+	float fine = texture(noise, world_xz * 0.3).r;
+	float speck = texture(noise, world_xz * 1.7).r;
+	ALBEDO = pow(COLOR.rgb, vec3(2.2)) * (0.88 + fine * 0.18 + (speck - 0.5) * 0.08);
 	ROUGHNESS = 1.0;
 }
