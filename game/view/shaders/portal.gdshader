@@ -1,6 +1,6 @@
 // Spawn and goal portal on a unit plane: a glowing swirl.
 shader_type spatial;
-render_mode unshaded, blend_add, depth_draw_never, shadows_disabled;
+render_mode unshaded, blend_add, cull_disabled, depth_draw_never, shadows_disabled;
 
 uniform vec4 color : source_color = vec4(0.8, 0.3, 1.0, 1.0);
 uniform float direction = 1.0;

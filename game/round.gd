@@ -315,25 +315,36 @@ func _toggle_speed() -> void:
 	hud.set_speed_text("%dx" % int(speed))
 
 
-## Warm late-afternoon sun with soft shadows, cool sky fill light, filmic tone
-## mapping and a little glow, added to `parent`. `cheap` leaves out the shadows
+## Warm late-afternoon sun with soft shadows, cool sky fill light, a dark depth
+## fog that swallows the far land, filmic tone mapping and a little glow,
+## added to `parent`. `cheap` leaves out the shadows
 ## and the glow (behind the menus).
 static func add_environment(parent: Node, cheap := false) -> void:
 	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-50.0, 40.0, 0.0)
-	sun.light_color = Color(1.0, 0.94, 0.84)
-	sun.light_energy = 1.25
+	sun.rotation_degrees = Vector3(-46.0, 35.0, 0.0)
+	sun.light_color = Color(1.0, 0.93, 0.8)
+	sun.light_energy = 1.35
 	sun.shadow_enabled = not cheap
-	sun.shadow_blur = 1.5
-	sun.directional_shadow_max_distance = 45.0
+	sun.shadow_blur = 1.2
+	sun.shadow_opacity = 0.85
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
+	sun.directional_shadow_max_distance = 40.0
 	parent.add_child(sun)
 
 	var e := Environment.new()
 	e.background_mode = Environment.BG_COLOR
-	e.background_color = Color(0.13, 0.22, 0.14)
+	e.background_color = Color(0.1, 0.15, 0.13)
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	e.ambient_light_color = Color(0.62, 0.7, 0.85)
-	e.ambient_light_energy = 0.75
+	e.ambient_light_color = Color(0.6, 0.68, 0.85)
+	e.ambient_light_energy = 0.7
+	# Depth fog: the far land fades into a dark haze around the map.
+	e.fog_enabled = true
+	e.fog_mode = Environment.FOG_MODE_DEPTH
+	e.fog_light_color = Color(0.1, 0.15, 0.13)
+	e.fog_density = 0.85
+	e.fog_depth_begin = 26.0
+	e.fog_depth_end = 62.0
+	e.fog_sun_scatter = 0.0
 	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	e.tonemap_exposure = 1.05
 	e.tonemap_white = 6.0
