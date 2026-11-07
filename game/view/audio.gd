@@ -206,7 +206,6 @@ func setup(p_game: Game) -> void:
 	_game.wave_started.connect(_on_wave_started)
 	_game.wave_cleared.connect(_on_wave_cleared)
 	_game.countdown_tick.connect(_on_countdown_tick)
-	_game.gold_bonus.connect(_on_gold_bonus)
 	_game.game_over.connect(_on_game_over)
 
 
@@ -380,11 +379,6 @@ func _on_wave_cleared(number: int) -> void:
 func _on_countdown_tick(seconds_left: int) -> void:
 	if seconds_left >= 1 and seconds_left <= 3:
 		play_event("tick", 1.9 - 0.15 * seconds_left, 5.0)
-
-
-func _on_gold_bonus(_amount: int, reason: String) -> void:
-	if reason == "early":
-		play_event("coin", 0.9)
 
 
 func _on_game_over(won: bool) -> void:

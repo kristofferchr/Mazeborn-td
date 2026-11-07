@@ -5,7 +5,7 @@ extends RefCounted
 ## be simulated deterministically in tests. The 3D view only reads this state
 ## and listens to the signals.
 ##
-## Config: start_gold, lives, wave_bonus, early_bonus, interest_rate,
+## Config: start_gold, lives, wave_bonus, interest_rate,
 ## interest_max, the countdown (build_time ...), endless and waves
 ## (data/waves.json), towers (data/towers.json), creeps (data/creeps.json),
 ## hp_scale (creep health, a map rule) and bounty_scale (gold per kill). A
@@ -14,9 +14,8 @@ extends RefCounted
 ##
 ## Wave flow: the first wave waits for the player. After a wave is cleared the
 ## next one starts by itself when the countdown (build_time seconds, see
-## build_time_for) runs out. Sending it earlier pays early_gold_per_second for
-## the time left, and sending it while a wave still runs also pays the flat
-## early_bonus (see early_gold).
+## build_time_for) runs out. The player may send it earlier, also while a wave
+## still runs (see can_send_early); that pays no gold, it only saves time.
 ##
 ## Options (create_map): "difficulty" (see above) and "mode": "endless" never
 ## wins; after the scripted waves come generated ones forever (see
@@ -34,7 +33,7 @@ signal tower_sold(tower: Tower, refund: int)
 signal tower_fired(tower: Tower, creep: Creep, damage: int)
 signal chain_hit(from: Vector2, creep: Creep)  # a lightning hop to another creep
 signal projectile_hit(projectile: Projectile, creep: Creep)  # creep is null on a miss
-signal gold_bonus(amount: int, reason: String)  # wave bonus, interest, early send
+signal gold_bonus(amount: int, reason: String)  # "wave" bonus or "interest"
 signal creep_spawned(creep: Creep)
 signal creep_killed(creep: Creep)
 signal creep_leaked(creep: Creep)
@@ -80,7 +79,6 @@ var tower_order: Array[String] = []
 var creep_defs: Dictionary  # kind -> definition
 var refund_rate: float
 var wave_bonus: int
-var early_bonus: int
 var creeps: Array[Creep] = []
 var towers: Dictionary = {}  # Vector2i -> Tower
 var projectiles: Array[Projectile] = []
@@ -92,7 +90,6 @@ var difficulty := Difficulty.DEFAULT
 var build_time: float  # countdown before a wave, 0 = no countdown (waits for the player)
 var build_time_min: float
 var build_time_step: float  # seconds less per wave, down to build_time_min
-var early_gold_per_second: float  # paid for the countdown time skipped by sending early
 ## Options the round was made with ({"difficulty": "normal", "mode": ...}). Keys
 ## this class does not know are kept, so other modes can add their own.
 var options: Dictionary = {}
@@ -126,7 +123,6 @@ func _init(config: Dictionary, p_grid: Grid, p_seed := 1, p_options := {}) -> vo
 	lives = int(config.lives)
 	start_lives = lives
 	wave_bonus = int(config.get("wave_bonus", 0))
-	early_bonus = int(config.get("early_bonus", 0))
 	interest_rate = float(config.get("interest_rate", 0.0))
 	interest_max = int(config.get("interest_max", 0))
 	hp_scale = float(config.get("hp_scale", 1.0))
@@ -134,7 +130,6 @@ func _init(config: Dictionary, p_grid: Grid, p_seed := 1, p_options := {}) -> vo
 	build_time = float(config.get("build_time", 0.0))
 	build_time_min = float(config.get("build_time_min", 0.0))
 	build_time_step = float(config.get("build_time_step", 0.0))
-	early_gold_per_second = float(config.get("early_gold_per_second", 0.0))
 	var ec: Variant = config.get("endless", {})
 	endless_config = ec if ec is Dictionary else {}
 	tower_defs = config.towers.towers
@@ -166,7 +161,7 @@ static func create_map(map_id: String, p_seed := 1, p_options := {}) -> Game:
 	if not Difficulty.exists(level):
 		level = Difficulty.DEFAULT
 	opts.difficulty = level
-	Difficulty.apply(config, level)
+	Difficulty.apply(config, level, m)
 	var g := Game.new(config, Maps.grid(m), p_seed, opts)
 	g.map = m
 	return g
@@ -288,19 +283,15 @@ func can_start_wave() -> bool:
 	return phase == Phase.BUILD or _queue.is_empty()
 
 
-## True while a wave runs and the next can be sent early (see early_gold).
+## True while a wave runs and the next can be sent early.
 func can_send_early() -> bool:
 	return phase == Phase.WAVE and can_start_wave()
 
 
-## Starts the next wave. Before the countdown runs out this pays early_gold.
+## Starts the next wave (also before the countdown runs out; no gold for that).
 func start_wave() -> bool:
 	if not can_start_wave():
 		return false
-	var bonus := early_gold()
-	if bonus > 0:
-		_add_gold(bonus)
-		gold_bonus.emit(bonus, "early")
 	countdown_ticks = 0
 	wave += 1
 	phase = Phase.WAVE
@@ -310,22 +301,6 @@ func start_wave() -> bool:
 		_spawn_timer = 0.0
 	wave_started.emit(wave)
 	return true
-
-
-## Gold for starting the next wave now: early_gold_per_second for the countdown
-## time skipped (all of it while a wave still runs), plus the flat early_bonus
-## when the current wave is still running. 0 for the first wave.
-func early_gold() -> int:
-	if not can_start_wave() or wave == 0:
-		return 0
-	if phase == Phase.WAVE:
-		var skipped := roundi(build_time_for(wave + 1) / DT)
-		return early_bonus + _gold_for_ticks(skipped)
-	return _gold_for_ticks(countdown_ticks)
-
-
-func _gold_for_ticks(n: int) -> int:
-	return floori(n * DT * early_gold_per_second + 0.0001)
 
 
 ## Countdown in seconds before wave `number` (2 or later) starts by itself: the

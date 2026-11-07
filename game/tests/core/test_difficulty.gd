@@ -105,3 +105,33 @@ func test_unknown_level_falls_back_and_options_pass_through() -> void:
 	Game.create_map("engen", 1, opts)
 	t.eq(opts, {"difficulty": "hard"}, "the caller's options are not changed")
 	t.eq(Game.create_map("engen").options, {"difficulty": "normal"}, "default options")
+
+
+func test_a_map_may_override_the_factors_of_a_level() -> void:
+	var map := {"difficulty": {"hard": {"hp_scale": 1.5}}}
+	t.eq(Difficulty.factor("hard", "hp_scale", map), 1.5, "the map's factor wins")
+	t.eq(
+		Difficulty.factor("hard", "lives_scale", map),
+		Difficulty.factor("hard", "lives_scale"),
+		"factors the map leaves out come from the level"
+	)
+	t.eq(Difficulty.factor("normal", "hp_scale", map), 1.0, "other levels are kept")
+	t.eq(
+		Difficulty.factor("hard", "hp_scale", {"difficulty": 3}),
+		Difficulty.factor("hard", "hp_scale"),
+		"bad data is ignored"
+	)
+
+
+func test_steinroysa_is_harder_on_vanskelig_only() -> void:
+	var own: Dictionary = Maps.load_map("steinroysa").difficulty.hard
+	var hard := Game.create_map("steinroysa", 1, {"difficulty": "hard"})
+	t.check(is_equal_approx(hard.hp_scale, float(own.hp_scale)), "own hp_scale")
+	t.check(is_equal_approx(hard.bounty_scale, float(own.bounty_scale)), "own bounty_scale")
+	t.check(hard.hp_scale > Difficulty.factor("hard", "hp_scale"), "tougher than plain hard")
+	t.check(hard.bounty_scale < 1.0, "less gold per kill")
+	t.eq(hard.lives, Game.create_map("engen", 1, {"difficulty": "hard"}).lives, "same lives")
+	var normal := Game.create_map("steinroysa", 1)
+	t.eq([normal.hp_scale, normal.bounty_scale], [1.0, 1.0], "Normal is unchanged")
+	var extreme := Game.create_map("steinroysa", 1, {"difficulty": "extreme"})
+	t.check(is_equal_approx(extreme.hp_scale, Difficulty.factor("extreme", "hp_scale")), "Ekstrem")

@@ -5,6 +5,10 @@ extends RefCounted
 ## hp_scale (creep health, multiplies the map's hp_scale), start_gold_scale,
 ## lives_scale, bounty_scale (gold per kill) and interest_scale. A missing
 ## factor is 1.0, so Normal plays exactly like the plain config.
+##
+## A map may override a level's factors in its JSON with "difficulty":
+## {"hard": {"hp_scale": 1.2}} sets the factor itself (instead of the level's)
+## for that map; factors it leaves out come from the level.
 
 const FILE := "res://data/difficulty.json"
 const DEFAULT := "normal"
@@ -50,17 +54,24 @@ static func display_name(id: String) -> String:
 	return str(level(id).get("name", id))
 
 
-## A factor of a level (1.0 when the level does not set it).
-static func factor(id: String, key: String) -> float:
+## A factor of a level (1.0 when the level does not set it). With a map, the
+## map's override for that level wins (see the class doc).
+static func factor(id: String, key: String, map := {}) -> float:
+	var overrides: Variant = map.get("difficulty", {})
+	if overrides is Dictionary and (overrides as Dictionary).get(id, {}) is Dictionary:
+		var own: Dictionary = (overrides as Dictionary).get(id, {})
+		if own.has(key):
+			return float(own[key])
 	return float(level(id).get(key, 1.0))
 
 
 ## Scales a round's config (shared config with the map's rules merged in) for
-## a level, in place. Unknown ids leave the config as it is.
-static func apply(config: Dictionary, id: String) -> void:
+## a level on a map (its overrides, if any), in place. Unknown ids leave the
+## config as it is.
+static func apply(config: Dictionary, id: String, map := {}) -> void:
 	for key: String in SCALES:
 		var target: String = SCALES[key]
-		var f := factor(id, key)
+		var f := factor(id, key, map)
 		var base := float(config.get(target, 1.0 if target.ends_with("_scale") else 0.0))
 		if target in WHOLE:
 			config[target] = maxi(roundi(base * f), 1)
