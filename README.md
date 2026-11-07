@@ -15,7 +15,7 @@ game/            Godot-prosjektet
   core/          spillregler som ren 2D-logikk (Grid, Game, Creep, Tower, Difficulty, Progress), testes headless
   data/          bølger og økonomi (waves.json), tårntyper (towers.json), fiendetyper (creeps.json) og vanskelighetsgrader (difficulty.json)
   data/maps/     kart som data: størrelse, portaler, mål, steiner og regler (én JSON per kart)
-  view/          3D-lag, HUD, lyd og menyer som bare leser tilstanden (BoardView, Effects, CameraRig, Hud, HudFx, WaveOverview, GameAudio, TitleScreen, MapSelect, PauseMenu, SettingsPanel, UserSettings)
+  view/          3D-lag, HUD, lyd og menyer som bare leser tilstanden (BoardView, Effects, CombatFx, CameraRig, Hud, HudFx, WaveOverview, GameAudio, TitleScreen, MapSelect, PauseMenu, SettingsPanel, UserSettings)
   main.tscn      appen: startskjerm, kartvalg, deretter en runde (round.tscn)
   tests/         headless tester (scripts/test.sh)
   tools/         skjermbilde, demo-scener og balanse-bot (ikke med i eksporten)

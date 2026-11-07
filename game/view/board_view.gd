@@ -49,7 +49,6 @@ const TOWER_ART := {
 		["building_tower_B_%s", 0.74],
 	],
 }
-const CANNON_BALL := "res://assets/kaykit_medieval/projectile_catapult.gltf"
 ## Rock cells: tall peaks (style "mountain") or piles of boulders ("boulders").
 const MOUNTAIN_MODELS := ["mountain_A", "mountain_B", "mountain_C"]
 const BOULDER_MODELS := ["rock_single_C", "rock_single_E"]
@@ -87,6 +86,7 @@ const SHADERS := "res://view/shaders/"
 
 var game: Game
 var effects: Effects  # particle bursts
+var combat: CombatFx  # projectiles, bolts, impacts and status marks
 var _towers: Dictionary = {}  # Vector2i -> Node3D
 var _creeps: Dictionary = {}  # creep id -> Node3D
 var _creep_models: Dictionary = {}  # creep id -> CreepArt id
@@ -98,7 +98,6 @@ var _tops: Dictionary = {}  # model file -> height of the model at scale 1
 var _ghost_ok := {}  # kind -> last preview colour state
 var _cell: MeshInstance3D
 var _ring: MeshInstance3D
-var _projectiles: Dictionary = {}  # projectile id -> Node3D
 var _overlays: Dictionary = {}  # status -> shared overlay material
 var _grid_alpha := 0.05
 var _stone_mats: Array[StandardMaterial3D] = []
@@ -184,6 +183,9 @@ func setup(p_game: Game) -> void:
 	effects = Effects.new()
 	add_child(effects)
 	effects.setup(game, self)
+	combat = CombatFx.new()
+	add_child(combat)
+	combat.setup(game, self, effects)
 	_draw_path()
 
 
@@ -261,7 +263,6 @@ func _process(_delta: float) -> void:
 		var bubble: Node3D = node.get_node_or_null("Shield")
 		if bubble:
 			bubble.visible = creep.shield > 0.0
-	_update_projectiles()
 
 
 ## Overlay tint: a shimmer while invulnerable, then stun, slow, burn, poison,
@@ -684,8 +685,8 @@ func _on_tower_sold(tower: Tower, _refund: int) -> void:
 		node.queue_free()
 
 
-## A short recoil on the tower. Shots with flight time are drawn from
-## game.projectiles; instant hits (lightning) get a bolt from the tower top.
+## A short recoil on the tower; instant hits (lightning) squash the creep.
+## Shots and bolts are drawn by CombatFx.
 func _on_tower_fired(tower: Tower, creep: Creep, _damage: int) -> void:
 	var node_t: Node3D = _towers.get(tower.cell)
 	if node_t:
@@ -693,21 +694,16 @@ func _on_tower_fired(tower: Tower, creep: Creep, _damage: int) -> void:
 		var tw := create_tween()
 		tw.tween_property(node_t, "scale", base * Vector3(1.06, 0.94, 1.06), 0.05)
 		tw.tween_property(node_t, "scale", base, 0.1)
-	if tower.stats().has("projectile_speed"):
-		return
-	_bolt(cell_pos(tower.cell, _tower_top(tower.cell)), _hit_point(creep), creep.id)
-	_flash(creep)
+	if not tower.stats().has("projectile_speed"):
+		_flash(creep)
 
 
-func _tower_top(cell: Vector2i) -> float:
+## Height above the ground where a tower's shots start.
+func tower_top(cell: Vector2i) -> float:
 	var node_t: Node3D = _towers.get(cell)
 	if node_t == null:
 		return 1.45
 	return node_t.get_meta("top", 1.45) * node_t.get_meta("full", node_t.scale).y
-
-
-func _hit_point(creep: Creep) -> Vector3:
-	return creep_world_pos(creep) + Vector3(0.0, creep_top(creep) * 0.5, 0.0)
 
 
 ## Squash the creep model briefly when it is hit.
@@ -720,102 +716,16 @@ func _flash(creep: Creep) -> void:
 		flash.tween_property(body, "scale", Vector3.ONE, 0.08)
 
 
-## Draws the projectiles in flight: interpolated, from the tower top down to
-## the target, cannon balls on a high arc.
-func _update_projectiles() -> void:
-	var a := clampf(game.alpha(), 0.0, 1.0)
-	var alive := {}
-	for p in game.projectiles:
-		alive[p.id] = true
-		var node: Node3D = _projectiles.get(p.id)
-		if node == null:
-			node = _projectile_node(p)
-			add_child(node)
-			_projectiles[p.id] = node
-		var pos := p.prev_pos.lerp(p.pos, a)
-		var done: float = node.get_meta("start").distance_to(pos)
-		var left := pos.distance_to(p.target_pos)
-		var f := clampf(done / (done + left + 0.0001), 0.0, 1.0)
-		var h0: float = node.get_meta("h0")
-		var h1 := creep_top(p.target) * 0.5 + (FLY_HEIGHT if p.target.flying else 0.0)
-		var high := p.kind == "earth" or p.stats.has("splash_radius")
-		var arc := (0.35 if high else 0.1) * (done + left) * sin(PI * f)
-		node.position = Vector3(pos.x, lerpf(h0, h1, f) + arc, pos.y)
-	for id: int in _projectiles.keys():
-		if not alive.has(id):
-			_projectiles[id].queue_free()
-			_projectiles.erase(id)
-
-
-func _projectile_node(p: Projectile) -> Node3D:
-	var node: Node3D
-	if p.kind == "earth" or p.element == "fire" and p.stats.has("splash_radius"):
-		node = _scene(CANNON_BALL).instantiate() as Node3D
-		if p.element == "fire":
-			node.add_child(_glow(ELEMENT_COLORS.fire, 0.25))
-	else:
-		node = _glow(shot_color(p.kind, p.element), 0.1)
-	node.set_meta("start", p.pos)
-	node.set_meta("h0", _tower_top(Vector2i(floori(p.pos.x), floori(p.pos.y))))
-	return node
-
-
-## Colour of a tower's shots: the element's colour, or the kind's.
-static func shot_color(kind: String, element: String) -> Color:
-	if kind == "elemental":
-		return ELEMENT_COLORS.get(element, ELEMENT_COLORS[""])
-	return tower_color(kind)
-
-
-func _glow(color: Color, radius: float) -> MeshInstance3D:
-	var glow := _mesh(_sphere(radius * 0.9), color.lightened(0.45), true)
-	glow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	var halo := _mesh(_sphere(radius * 1.9), Color(color.lightened(0.3), 0.35), true)
-	halo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	glow.add_child(halo)
-	return glow
-
-
-func _on_chain_hit(from: Vector2, creep: Creep) -> void:
-	_bolt(Vector3(from.x, 0.5, from.y), _hit_point(creep), creep.id)
+func _on_chain_hit(_from: Vector2, creep: Creep) -> void:
 	_flash(creep)
 
 
-## Jagged bolt of lightning between two points, gone after a moment.
-func _bolt(a: Vector3, b: Vector3, salt: int) -> void:
-	var mesh := ImmediateMesh.new()
-	mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
-	var rng := RandomNumberGenerator.new()
-	rng.seed = salt * 7919 + game.ticks
-	for i in 7:
-		var f := i / 6.0
-		var jitter := Vector3.ZERO
-		if i > 0 and i < 6:
-			jitter = Vector3(
-				rng.randf_range(-0.15, 0.15),
-				rng.randf_range(-0.1, 0.1),
-				rng.randf_range(-0.15, 0.15)
-			)
-		mesh.surface_add_vertex(a.lerp(b, f) + jitter)
-	mesh.surface_end()
-	var bolt := MeshInstance3D.new()
-	bolt.mesh = mesh
-	bolt.material_override = mat(ELEMENT_COLORS.lightning.lightened(0.3), true)
-	bolt.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(bolt)
-	var tw := create_tween()
-	tw.tween_interval(0.12)
-	tw.tween_callback(bolt.queue_free)
-
-
-func _on_projectile_hit(p: Projectile, creep: Creep) -> void:
-	if p.stats.has("splash_radius"):
-		_splash(Vector3(p.pos.x, 0.0, p.pos.y), float(p.stats.splash_radius), Color(1, 0.8, 0.5))
+func _on_projectile_hit(_p: Projectile, creep: Creep) -> void:
 	if creep:
 		_flash(creep)
 
 
-## Expanding ring where a cannon ball lands.
+## Expanding ring on the ground (heal pulses, summons, boss phases).
 func _splash(at: Vector3, radius: float, color: Color) -> void:
 	var ring := _mesh(_ring_mesh(0.85, 1.0), Color(color, 0.8), true)
 	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF

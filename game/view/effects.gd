@@ -1,9 +1,10 @@
 class_name Effects
 extends Node3D
-## One-shot particle bursts for the board: hits per tower kind and element,
-## a puff and popping coins when a creep dies, dust when a tower is built or
-## sold and a sparkle on upgrades. Each style has a small pool of emitters that
-## are reused round-robin, so a busy wave costs the same as a quiet one.
+## One-shot mesh particle bursts for the board: debris per tower kind and
+## element, a puff and popping coins when a creep dies (both started by
+## CombatFx), dust when a tower is built or sold and a sparkle on upgrades.
+## Each style has a small pool of emitters that are reused round-robin, so a
+## busy wave costs the same as a quiet one.
 ## CPUParticles3D, which the Compatibility renderer supports.
 
 const POOL := 6  # emitters per style
@@ -40,10 +41,6 @@ static func hit_style(kind: String, element := "") -> String:
 func setup(p_game: Game, p_board: BoardView) -> void:
 	game = p_game
 	board = p_board
-	game.projectile_hit.connect(_on_projectile_hit)
-	game.tower_fired.connect(_on_tower_fired)
-	game.chain_hit.connect(func(_from: Vector2, c: Creep) -> void: burst("lightning", _at(c)))
-	game.creep_killed.connect(_on_creep_killed)
 	game.tower_built.connect(func(t: Tower) -> void: burst("dust", BoardView.cell_pos(t.cell)))
 	game.tower_sold.connect(
 		func(t: Tower, _r: int) -> void: burst("dust", BoardView.cell_pos(t.cell), 1.2)
@@ -54,6 +51,8 @@ func setup(p_game: Game, p_board: BoardView) -> void:
 ## Emits one burst of a style at a world position (scale grows the burst).
 func burst(style: String, at: Vector3, scale_by := 1.0, color := Color(0, 0, 0, 0)) -> void:
 	var p := _emitter(style)
+	if not p.is_inside_tree():
+		return  # headless tests run the view outside a running tree
 	p.position = at
 	p.scale_amount_min = 0.7 * scale_by
 	p.scale_amount_max = 1.2 * scale_by
@@ -132,31 +131,6 @@ func _particle_mesh(kind: String, size: float) -> PrimitiveMesh:
 	s.radial_segments = 6
 	s.rings = 3
 	return s
-
-
-func _at(creep: Creep) -> Vector3:
-	return board.creep_world_pos(creep) + Vector3(0, board.creep_top(creep) * 0.5, 0)
-
-
-func _on_projectile_hit(p: Projectile, creep: Creep) -> void:
-	var style := hit_style(p.kind, p.element)
-	if creep:
-		burst(style, _at(creep))
-	if p.stats.has("splash_radius"):
-		var r := float(p.stats.splash_radius)
-		burst(style, Vector3(p.pos.x, 0.1, p.pos.y), clampf(r, 1.0, 1.6))
-
-
-## Instant hits (lightning without a projectile) burst on the target.
-func _on_tower_fired(tower: Tower, creep: Creep, _damage: int) -> void:
-	if not tower.stats().has("projectile_speed"):
-		burst(hit_style(tower.kind, tower.element()), _at(creep))
-
-
-func _on_creep_killed(creep: Creep) -> void:
-	var boss := creep.kind == "boss"
-	burst("puff", _at(creep), 1.8 if boss else 1.0)
-	burst("coins", _at(creep) + Vector3(0, 0.2, 0), 1.3 if boss else 1.0)
 
 
 func _on_tower_upgraded(tower: Tower) -> void:
