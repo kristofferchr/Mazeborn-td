@@ -133,5 +133,26 @@ func test_steinroysa_is_harder_on_vanskelig_only() -> void:
 	t.eq(hard.lives, Game.create_map("engen", 1, {"difficulty": "hard"}).lives, "same lives")
 	var normal := Game.create_map("steinroysa", 1)
 	t.eq([normal.hp_scale, normal.bounty_scale], [1.0, 1.0], "Normal is unchanged")
+	var endless := Game.create_map("steinroysa", 1, {"difficulty": "hard", "mode": "endless"})
+	t.check(is_equal_approx(endless.hp_scale, hard.hp_scale), "endless keeps the hp_scale")
+	t.check(
+		is_equal_approx(endless.bounty_scale, float(own.endless.bounty_scale)),
+		"endless has its own bounty_scale"
+	)
+	t.check(endless.bounty_scale > hard.bounty_scale, "softer in endless than in classic")
 	var extreme := Game.create_map("steinroysa", 1, {"difficulty": "extreme"})
 	t.check(is_equal_approx(extreme.hp_scale, Difficulty.factor("extreme", "hp_scale")), "Ekstrem")
+
+
+func test_a_mode_inside_a_level_overrides_again() -> void:
+	var map := {"difficulty": {"hard": {"bounty_scale": 0.8, "endless": {"bounty_scale": 0.9}}}}
+	t.eq(Difficulty.factor("hard", "bounty_scale", map), 0.8, "classic by default")
+	t.eq(Difficulty.factor("hard", "bounty_scale", map, "classic"), 0.8, "classic")
+	t.eq(Difficulty.factor("hard", "bounty_scale", map, "endless"), 0.9, "endless")
+	t.eq(
+		Difficulty.factor("hard", "hp_scale", map, "endless"),
+		Difficulty.factor("hard", "hp_scale"),
+		"the level fills in the rest"
+	)
+	var endless := Difficulty.factor("hard", "endless", map)
+	t.eq(endless, Difficulty.factor("hard", "endless"), "a mode is not a factor")

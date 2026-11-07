@@ -3,7 +3,8 @@ extends RefCounted
 ## Bot that builds a serpentine maze (MazePlan) with mixed tower kinds, adds air
 ## towers before flying waves, upgrades arrows along the maze to sharpshooters
 ## (they reveal invisible creeps) before invisible waves and upgrades once the
-## maze is done. Used by the balance tool and the map tests.
+## maze is done. Used by the balance tool, the map tests and to record replays:
+## every move goes through Game.apply, so it is recorded like a player's.
 
 const AIR_FOR_FLYERS := 6
 const REVEAL_EVERY := 8  # a revealing tower every this many towers along the maze
@@ -41,7 +42,7 @@ func play_wave() -> void:
 	spend()
 	var lives := game.lives
 	if game.wave == 0 or send_early or not game.countdown_active():
-		game.start_wave()
+		game.apply({"type": "start_wave"})
 	else:
 		while game.countdown_active():
 			game.step()
@@ -83,7 +84,7 @@ func _build_next() -> bool:
 		if game.tower_at(plan[i]) != null or not game.grid.can_build(plan[i]):
 			continue
 		var kind := _kind_for(i)
-		return game.can_afford(kind) and game.build(plan[i], kind) != null
+		return game.can_afford(kind) and _build(plan[i], kind)
 	return false
 
 
@@ -105,7 +106,7 @@ func _upgrade_cheapest() -> bool:
 			best = cell
 			best_option = option
 			best_cost = tower.upgrade_cost(option)
-	return best.x >= 0 and game.upgrade(best, best_option)
+	return best.x >= 0 and _upgrade(best, best_option)
 
 
 ## Upgrades arrows spread along the maze until they reveal invisible creeps.
@@ -114,7 +115,7 @@ func _revealers() -> void:
 		for j in range(i, mini(i + 3, plan.size())):
 			var tower := game.tower_at(plan[j])
 			if tower != null and tower.kind == "arrow":
-				while not tower.reveals() and game.upgrade(plan[j]):
+				while not tower.reveals() and _upgrade(plan[j]):
 					pass
 				break
 
@@ -145,7 +146,7 @@ func _air_towers() -> void:
 	for cell in cells:
 		if have >= AIR_FOR_FLYERS or not game.can_afford("wind"):
 			return
-		if game.build(cell, "wind") != null:
+		if _build(cell, "wind"):
 			have += 1
 
 
@@ -160,3 +161,11 @@ func _air_dist(cell: Vector2i) -> float:
 		var t := clampf((p - a).dot(ab) / ab.length_squared(), 0.0, 1.0)
 		best = minf(best, p.distance_to(a + ab * t))
 	return best
+
+
+func _build(cell: Vector2i, kind: String) -> bool:
+	return game.apply({"type": "build", "cell": cell, "kind": kind})
+
+
+func _upgrade(cell: Vector2i, option := "") -> bool:
+	return game.apply({"type": "upgrade", "cell": cell, "option": option})

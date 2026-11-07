@@ -3,8 +3,11 @@ extends CanvasLayer
 ## Heads-up display: resources, wave controls (the start button with the
 ## countdown ring), the next-wave card (tap it for the overview of every wave
 ## left), the build menu and tower panel, health bars, floating gold, the mute
-## and pause buttons, the pause menu with the settings, and the end screen
-## (stars, record). Damage numbers, wave banners and the leak glow: HudFx.
+## and pause buttons, the pause menu with the settings, the end screen
+## (EndScreen) and toasts ("Kopiert", Toast). Damage numbers, wave banners and
+## the leak glow: HudFx.
+## Short notices at the top: notify() (Notice). Other layers (the coach marks)
+## go in with add_layer.
 ## Reads the game state; user actions are sent out as signals. Look: UiStyle.
 
 signal start_wave_pressed
@@ -19,6 +22,7 @@ signal pause_pressed
 signal resume_pressed
 signal retry_pressed  # "Prøv igjen" and "Start på nytt"
 signal maps_pressed  # "Velg kart" and "Avslutt til kart"
+signal share_pressed  # "Del replay" on the end screen
 
 const MARGIN := 20.0
 const TAG_COLORS := {
@@ -68,8 +72,6 @@ var _mute_icon: UiIcon
 var _pause: Button
 var _pause_menu: PauseMenu
 var _settings: SettingsPanel
-var _end_stars: HBoxContainer
-var _end_record: Label
 var _paused := false
 var _start: Button
 var _start_box: HBoxContainer  # countdown: ring and two lines of text
@@ -98,13 +100,11 @@ var _upgrades: HBoxContainer  # one card per upgrade option
 var _upgrades_key := ""  # tower and node the cards were made for
 var _targeting: Button
 var _sell: Button
-var _end: Control
-var _end_title: Label
-var _end_text: Label
-var _end_stats: Label
+var _end: EndScreen
 var _bars: Control
 var _floaters: Control
 var _fx: HudFx
+var _notice: Notice
 var _thumbs: Dictionary = {}  # "kind:level:element" -> ViewportTexture
 var _thumb_life: Dictionary = {}  # SubViewport -> frames left to render
 var _ui: Array[Control] = []  # controls that swallow taps
@@ -121,6 +121,29 @@ func setup(p_game: Game, p_board: BoardView, p_camera: Camera3D) -> void:
 	game.countdown_tick.connect(_on_countdown_tick)
 	get_viewport().size_changed.connect(_layout)
 	_layout()
+
+
+## Shows a short notice at the top (see Notice). Returns false if it was dropped.
+func notify(title: String, sub := "", icon := "star", color := UiStyle.ACCENT) -> bool:
+	return _notice.show_notice(title, sub, icon, color)
+
+
+## Adds a layer over the map and the HUD, under the menus and the end screen.
+## Taps on `blockers` (controls in it) are kept from the map like the HUD's own.
+func add_layer(layer: Control, blockers: Array[Control] = []) -> void:
+	_root.add_child(layer)
+	var below := _root.get_child_count() - 1
+	for c: Control in [_end, _pause_menu, _settings]:
+		below = mini(below, c.get_index())
+	_root.move_child(layer, below)
+	_ui.append_array(blockers)
+
+
+## Screen rectangle of a HUD control others point at: "start" (the start
+## button), "build" (the build button) or "panel" (the selection panel).
+func anchor_rect(what: String) -> Rect2:
+	var c: Control = {"start": _start, "build": _build_button, "panel": _panel}.get(what)
+	return c.get_global_rect() if c and c.is_visible_in_tree() else Rect2()
 
 
 ## True if a screen position is on a HUD control (so the tap is not for the map).
@@ -147,7 +170,7 @@ func show_selection(
 	_pips.visible = tower != null
 	if tower == null:
 		_info_title.text = game.tower_name(build_kind)
-		_info_stats.text = _describe(build_kind, game.tower_base_stats(build_kind))
+		_info_stats.text = TowerText.describe(game, build_kind, game.tower_base_stats(build_kind))
 		for kind: String in _kind_cards:
 			var card: Button = _kind_cards[kind]
 			card.button_pressed = kind == build_kind
@@ -158,7 +181,7 @@ func show_selection(
 		_build_button.disabled = not buildable
 	else:
 		_info_title.text = tower.display_name()
-		_info_stats.text = _describe(tower.kind, tower.stats())
+		_info_stats.text = TowerText.describe(game, tower.kind, tower.stats())
 		_tower_thumb.texture = _thumb(tower.kind, tower.level, tower.element())
 		for i in _pips.get_child_count():
 			var pip := _pips.get_child(i) as Panel
@@ -214,26 +237,7 @@ func show_paused(on: bool) -> void:
 
 ## Stars and "Ny rekord!" on the end screen (after the game is over).
 func show_result(stars: int, new_record: bool) -> void:
-	UiStyle.set_stars(_end_stars, stars)
-	_end_stars.visible = game.phase == Game.Phase.WON
-	_end_record.visible = new_record
-	if _end_stars.visible:
-		for i in _end_stars.get_child_count():
-			var star := _end_stars.get_child(i) as Control
-			star.pivot_offset = star.custom_minimum_size / 2.0
-			star.scale = Vector2.ZERO
-			var tw := star.create_tween()
-			tw.tween_interval(0.25 + 0.18 * i)
-			(
-				tw
-				. tween_property(star, "scale", Vector2.ONE, 0.35)
-				. set_trans(Tween.TRANS_BACK)
-				. set_ease(Tween.EASE_OUT)
-			)
-	if new_record:
-		var pulse := _end_record.create_tween().set_loops()
-		pulse.tween_property(_end_record, "modulate:a", 0.7, 0.6)
-		pulse.tween_property(_end_record, "modulate:a", 1.0, 0.6)
+	_end.show_result(stars, game.phase == Game.Phase.WON, new_record)
 
 
 func _process(_delta: float) -> void:
@@ -379,42 +383,6 @@ func _upgrade_card(tower: Tower, option: String) -> Button:
 	return card
 
 
-## One line of stats and effects for a tower kind at some level.
-func _describe(kind: String, s: Dictionary) -> String:
-	var parts: Array[String] = [
-		"Skade %d–%d" % [int(s.damage_min), int(s.damage_max)],
-		"%.1f/s" % (1.0 / float(s.cooldown)),
-		"rekkevidde %.1f" % float(s.range),
-	]
-	if s.has("splash_radius"):
-		parts.append("splash %.1f" % float(s.splash_radius))
-	if s.has("slow"):
-		parts.append("sakker ned %d %%" % roundi(float(s.slow) * 100.0))
-	if s.has("poison_dps"):
-		var what := "brann" if str(s.get("element", "")) == "fire" else "gift"
-		parts.append("%s %d/s ×%d" % [what, int(s.poison_dps), int(s.get("poison_stacks", 1))])
-	if s.has("stun"):
-		parts.append("stun %.1fs" % float(s.stun))
-	if s.has("knockback"):
-		parts.append("skyver tilbake")
-	if s.has("air_multiplier"):
-		parts.append("×%.1f mot luft" % float(s.air_multiplier))
-	if s.has("chain"):
-		parts.append("hopper %d" % int(s.chain))
-	if s.has("multishot"):
-		parts.append("%d mål" % int(s.multishot))
-	if s.get("armor_pierce", false):
-		parts.append("gjennom rustning")
-	if s.get("reveal", false):
-		parts.append("avslører usynlige")
-	var targets: Array = game.tower_defs[kind].get("targets", ["ground"])
-	if "air" in targets and "ground" in targets:
-		parts.append("bakke og luft")
-	elif "air" in targets:
-		parts.append("bare luft")
-	return "  ·  ".join(parts)
-
-
 ## Card above the start button: what the next wave holds.
 func _update_next_wave() -> void:
 	var shown := game.wave if not game.is_over() else -1
@@ -477,6 +445,8 @@ func _build() -> void:
 	_root.add_child(_fx)
 	_fx.setup(game, board, camera)
 	_floaters = _overlay()
+	_notice = Notice.new()
+	_root.add_child(_notice)
 
 	# Resources: one pill with gold, lives and wave.
 	_top = PanelContainer.new()
@@ -730,60 +700,16 @@ func _kind_card(kind: String) -> Button:
 
 
 func _build_end_screen() -> void:
-	var shade := ColorRect.new()
-	shade.color = Color(0.02, 0.03, 0.05, 0.7)
-	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_end = shade
-	_end.visible = false
-	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_end.add_child(center)
-	var card := PanelContainer.new()
-	var style := UiStyle.panel(Color(0.09, 0.11, 0.15, 0.96), 28)
-	style.content_margin_left = 56
-	style.content_margin_right = 56
-	style.content_margin_top = 36
-	style.content_margin_bottom = 40
-	card.add_theme_stylebox_override("panel", style)
-	center.add_child(card)
-	var box := VBoxContainer.new()
-	box.alignment = BoxContainer.ALIGNMENT_CENTER
-	box.add_theme_constant_override("separation", 14)
-	card.add_child(box)
-	_end_stars = UiStyle.stars(0, 64)
-	_end_stars.alignment = BoxContainer.ALIGNMENT_CENTER
-	_end_stars.visible = false
-	box.add_child(_end_stars)
-	_end_title = UiStyle.label("", 76, UiStyle.ACCENT, true)
-	_end_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	box.add_child(_end_title)
-	_end_record = UiStyle.chip("Ny rekord!", UiStyle.ACCENT_DARK, 24)
-	_end_record.add_theme_color_override("font_color", UiStyle.ON_ACCENT)
-	_end_record.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	_end_record.visible = false
-	box.add_child(_end_record)
-	_end_text = UiStyle.label("", 26, UiStyle.TEXT)
-	_end_text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	box.add_child(_end_text)
-	_end_stats = UiStyle.label("", 22, UiStyle.MUTED)
-	_end_stats.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	box.add_child(_end_stats)
-	var gap := Control.new()
-	gap.custom_minimum_size = Vector2(0, 10)
-	box.add_child(gap)
-	var buttons := HBoxContainer.new()
-	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
-	buttons.add_theme_constant_override("separation", 16)
-	box.add_child(buttons)
-	var maps := _button("Velg kart", "secondary", func() -> void: maps_pressed.emit())
-	maps.custom_minimum_size = Vector2(240, 96)
-	maps.add_theme_font_size_override("font_size", 30)
-	buttons.add_child(maps)
-	var retry := _button("Prøv igjen", "primary", func() -> void: retry_pressed.emit())
-	retry.custom_minimum_size = Vector2(300, 96)
-	retry.add_theme_font_size_override("font_size", 34)
-	buttons.add_child(retry)
+	_end = EndScreen.new()
+	_end.maps_pressed.connect(func() -> void: maps_pressed.emit())
+	_end.share_pressed.connect(func() -> void: share_pressed.emit())
+	_end.retry_pressed.connect(func() -> void: retry_pressed.emit())
 	_root.add_child(_end)
+
+
+## A short message at the bottom of the screen that fades out ("Kopiert").
+func show_toast(text: String) -> void:
+	Toast.pop(_root, text, MARGIN + UiStyle.safe_insets(get_viewport()).bottom)
 
 
 func _overlay() -> Control:
@@ -877,6 +803,7 @@ func _layout() -> void:
 	_mute.size = _mute.custom_minimum_size
 	_mute.position = Vector2(_speed.position.x - 12.0 - _mute.size.x, top)
 	_fx.banner_top = top + maxf(_top.size.y, _speed.size.y) + 18.0
+	_notice.top = _fx.banner_top + 108.0  # under a wave banner
 	_start.size = _start.custom_minimum_size
 	_start.position = Vector2(right - _start.size.x, bottom - _start.size.y)
 	_next.reset_size()
@@ -969,30 +896,6 @@ func _on_game_over(won: bool) -> void:
 	_next.visible = false
 	if overview_open:
 		toggle_overview()
-	_end.visible = true
 	_pause.visible = false
 	show_paused(false)
-	var parts: Array[String] = [
-		str(game.map.get("name", "Kart")),
-		Difficulty.display_name(game.difficulty),
-		"Endeløs" if game.endless else wave_text(game),
-		"%d liv" % game.lives,
-		"%d gull" % game.gold,
-	]
-	_end_stats.text = "   ·   ".join(parts)
-	if game.endless:
-		_end_title.text = "Bølge %d" % game.score()
-		_end_title.add_theme_color_override("font_color", UiStyle.ACCENT)
-		_end_text.text = (
-			"Endeløs: mazen holdt til og med bølge %d." % game.score()
-			if game.score() > 0
-			else "Endeløs: fiendene slapp gjennom på første bølge."
-		)
-	elif won:
-		_end_title.text = "Seier!"
-		_end_title.add_theme_color_override("font_color", UiStyle.ACCENT)
-		_end_text.text = "Mazen holdt gjennom alle bølgene."
-	else:
-		_end_title.text = "Tapt"
-		_end_title.add_theme_color_override("font_color", UiStyle.DANGER)
-		_end_text.text = "Fiendene slapp gjennom på bølge %d." % game.wave
+	_end.show_for(game, won)

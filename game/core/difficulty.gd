@@ -8,7 +8,9 @@ extends RefCounted
 ##
 ## A map may override a level's factors in its JSON with "difficulty":
 ## {"hard": {"hp_scale": 1.2}} sets the factor itself (instead of the level's)
-## for that map; factors it leaves out come from the level.
+## for that map; factors it leaves out come from the level. Inside it, a mode
+## ("classic" or "endless") may override again: {"hard": {"bounty_scale": 0.8,
+## "endless": {"bounty_scale": 0.9}}} pays 0.9 in endless and 0.8 in classic.
 
 const FILE := "res://data/difficulty.json"
 const DEFAULT := "normal"
@@ -55,23 +57,29 @@ static func display_name(id: String) -> String:
 
 
 ## A factor of a level (1.0 when the level does not set it). With a map, the
-## map's override for that level wins (see the class doc).
-static func factor(id: String, key: String, map := {}) -> float:
-	var overrides: Variant = map.get("difficulty", {})
-	if overrides is Dictionary and (overrides as Dictionary).get(id, {}) is Dictionary:
-		var own: Dictionary = (overrides as Dictionary).get(id, {})
-		if own.has(key):
-			return float(own[key])
+## map's override for that level (and for the mode inside it) wins (see the
+## class doc).
+static func factor(id: String, key: String, map := {}, mode := "classic") -> float:
+	var own := _dict(_dict(map.get("difficulty")).get(id))
+	var for_mode := _dict(own.get(mode))
+	if for_mode.has(key):
+		return float(for_mode[key])
+	if own.has(key) and not own[key] is Dictionary:
+		return float(own[key])
 	return float(level(id).get(key, 1.0))
 
 
+static func _dict(v: Variant) -> Dictionary:
+	return v if v is Dictionary else {}
+
+
 ## Scales a round's config (shared config with the map's rules merged in) for
-## a level on a map (its overrides, if any), in place. Unknown ids leave the
-## config as it is.
-static func apply(config: Dictionary, id: String, map := {}) -> void:
+## a level on a map (its overrides for the level and mode, if any), in place.
+## Unknown ids leave the config as it is.
+static func apply(config: Dictionary, id: String, map := {}, mode := "classic") -> void:
 	for key: String in SCALES:
 		var target: String = SCALES[key]
-		var f := factor(id, key, map)
+		var f := factor(id, key, map, mode)
 		var base := float(config.get(target, 1.0 if target.ends_with("_scale") else 0.0))
 		if target in WHOLE:
 			config[target] = maxi(roundi(base * f), 1)
