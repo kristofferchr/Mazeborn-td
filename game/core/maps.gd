@@ -6,7 +6,8 @@ extends RefCounted
 ## in the list), size [w, h], spawns [[x, y], ...], goal [x, y], blocked (rocks:
 ## cells [x, y] or rectangles [x, y, w, h]), and optionally decor (look hints
 ## for the view: style "mountain" or "boulders", trees, boulders) and rules
-## (overrides of data/waves.json such as start_gold or lives).
+## (overrides of data/waves.json such as start_gold or lives) and difficulty
+## (per-level overrides of data/difficulty.json factors, see Difficulty).
 
 const DIR := "res://data/maps/"
 const DEFAULT := "engen"

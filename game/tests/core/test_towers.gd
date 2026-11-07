@@ -150,7 +150,6 @@ func test_mixed_wave_spawns_groups_in_order() -> void:
 func test_wave_bonus_and_early_send() -> void:
 	var g := _game([_wave(2, 10), _wave(1, 10), _wave(1, 10)], 0)
 	g.wave_bonus = 5
-	g.early_bonus = 3
 	g.start_wave()
 	t.check(not g.can_send_early(), "not before the wave has spawned")
 	g.step()
@@ -159,10 +158,10 @@ func test_wave_bonus_and_early_send() -> void:
 		g.step()
 	t.check(g.can_send_early(), "all spawned")
 	t.check(g.start_wave(), "send wave 2 early")
-	t.eq(g.gold, 3, "early bonus")
+	t.eq(g.gold, 0, "no gold for sending early")
 	t.eq(g.wave, 2, "wave 2 running")
 	g.run_wave()
-	t.eq(g.gold, 8, "one wave bonus once the field is clear")
+	t.eq(g.gold, 5, "one wave bonus once the field is clear")
 	t.eq(g.phase, Game.Phase.BUILD, "back to building")
 
 

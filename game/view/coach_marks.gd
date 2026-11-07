@@ -176,12 +176,12 @@ func _refresh() -> void:
 			if game.countdown_active():
 				body = (
 					"Neste bølge kommer av seg selv når ringen er tom. «Send nå» sender "
-					+ "den med en gang og gir bonusgull."
+					+ "neste bølge med en gang."
 				)
 			else:
 				body = (
-					"Når bølgen er slått, teller knappen ned til neste. Vent, eller send "
-					+ "den tidlig for bonusgull."
+					"Når bølgen er slått, teller knappen ned til neste. Vent og bygg, "
+					+ "eller send den med en gang."
 				)
 			_ring = round.hud.anchor_rect("start")
 	_title.text = title

@@ -142,7 +142,7 @@ func test_maze_plan_skips_rocks_and_keeps_paths() -> void:
 			t.check(g.build(cell), "%s plan cell %s can be built in order" % [id, cell])
 
 
-## Both bots: one that lets every countdown run out (no early gold) and one
+## Both bots: one that lets every countdown run out and one
 ## that sends each wave as soon as it has built.
 func test_bot_wins_every_map() -> void:
 	for id in MAP_IDS:
@@ -156,6 +156,15 @@ func test_bot_wins_every_map() -> void:
 					% [send_early, id, game.wave, game.lives]
 				)
 			)
+
+
+## Vanskelig should cost the bot lives on every map (Steinrøysa has its own
+## factors for that, see data/maps/steinroysa.json).
+func test_bot_wins_steinroysa_on_vanskelig_with_lives_lost() -> void:
+	var game := Game.create_map("steinroysa", 3, {"difficulty": "hard"})
+	var won := Bot.new(game).play()
+	t.check(won, "bot wins (wave %d, lives %d)" % [game.wave, game.lives])
+	t.check(game.lives * 2 <= game.start_lives, "lives lost: %d left" % game.lives)
 
 
 func test_split_children_follow_their_parent_from_the_second_spawn() -> void:

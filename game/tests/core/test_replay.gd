@@ -180,7 +180,7 @@ func test_sending_early_during_a_wave_plays_back_the_same() -> void:
 			g.step()
 		var gold := g.gold
 		t.check(g.apply({"type": "start_wave"}), "sent wave %d early" % (n + 2))
-		t.check(g.gold > gold, "early gold paid")
+		t.eq(g.gold, gold, "no gold for sending early")
 		g.run_wave()
 	var back := _check_plays_back(Replay.from_json(Replay.record(g).to_json()), "early")
 	t.eq(back.wave, g.wave, "same wave")

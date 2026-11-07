@@ -222,7 +222,6 @@ func setup(p_game: Game) -> void:
 	_link(_game.wave_started, _on_wave_started)
 	_link(_game.wave_cleared, _on_wave_cleared)
 	_link(_game.countdown_tick, _on_countdown_tick)
-	_link(_game.gold_bonus, _on_gold_bonus)
 	_link(_game.game_over, _on_game_over)
 	scene = "round"
 	if _unlocked:
@@ -460,11 +459,6 @@ func _on_wave_cleared(number: int) -> void:
 func _on_countdown_tick(seconds_left: int) -> void:
 	if seconds_left >= 1 and seconds_left <= 3:
 		play_event("tick", 1.9 - 0.15 * seconds_left, 5.0)
-
-
-func _on_gold_bonus(_amount: int, reason: String) -> void:
-	if reason == "early":
-		play_event("coin", 0.9)
 
 
 func _on_game_over(won: bool) -> void:

@@ -12,10 +12,9 @@ const REVEAL_EVERY := 8  # a revealing tower every this many towers along the ma
 var game: Game
 var plan: Array[Vector2i]
 var leaked_by_wave := {}  # wave number -> creeps that got through
-## Send each wave as soon as the bot has built (for the early gold) instead of
-## letting the countdown run out.
+## Send each wave as soon as the bot has built instead of letting the
+## countdown run out (no gold for it, only less time between waves).
 var send_early := false
-var early_gold := 0  # gold earned by sending early
 
 
 func _init(p_game: Game, p_send_early := false) -> void:
@@ -43,9 +42,7 @@ func play_wave() -> void:
 	spend()
 	var lives := game.lives
 	if game.wave == 0 or send_early or not game.countdown_active():
-		var gold := game.gold
 		game.apply({"type": "start_wave"})
-		early_gold += game.gold - gold
 	else:
 		while game.countdown_active():
 			game.step()

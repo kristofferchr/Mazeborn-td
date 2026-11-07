@@ -117,3 +117,15 @@ func test_guided_round_keeps_the_menu_choices() -> void:
 		f.close()
 	else:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+func test_countdown_step_promises_no_gold() -> void:
+	var round := _round(Onboarding.options())
+	var coach := _coach(round)
+	coach.settings_path = TEMP
+	coach.onboarding._go(Onboarding.Step.COUNTDOWN)
+	coach._process(0.1)
+	t.eq(coach._title.text, "Nedtelling og «Send nå»", "countdown step")
+	t.check(coach._body.text.contains("med en gang"), "says it sends at once")
+	t.check(not coach._body.text.contains("gull"), "no bonus gold: %s" % coach._body.text)
+	_free(round)

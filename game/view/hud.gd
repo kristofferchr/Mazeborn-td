@@ -260,8 +260,8 @@ func _process(_delta: float) -> void:
 
 
 ## The start button: "Start bølge" before the first wave, the countdown ring
-## with "Send nå +N" between waves, and "Send neste +N" once a running wave
-## has spawned.
+## with "Send nå" between waves, and "Send neste" once a running wave has
+## spawned.
 func _update_start() -> void:
 	_start.disabled = not game.can_start_wave()
 	var counting := game.countdown_active()
@@ -270,13 +270,13 @@ func _update_start() -> void:
 		_start.text = ""
 		var left := ceili(game.countdown() - 0.0001)
 		_ring_label.text = str(left)
-		_start_title.text = "Send nå  +%d" % game.early_gold()
+		_start_title.text = "Send nå"
 		_start_sub.text = "Neste om %d s" % left
 		_ring.set_meta("fraction", game.countdown_fraction())
 		_ring.set_meta("urgent", left <= PULSE_SECONDS)
 		_ring.queue_redraw()
 	elif game.can_send_early():
-		_start.text = "Send neste  +%d" % game.early_gold()
+		_start.text = "Send neste"
 	elif game.phase == Game.Phase.WAVE:
 		_start.text = "Bølge pågår"
 	else:
@@ -495,7 +495,7 @@ func _build() -> void:
 
 
 ## Countdown content of the start button: a ring with the seconds left, then
-## "Send nå +N" over "Neste om N s".
+## "Send nå" over "Neste om N s".
 func _build_countdown() -> void:
 	_start_box = HBoxContainer.new()
 	_start_box.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -868,11 +868,9 @@ func _on_creep_killed(creep: Creep) -> void:
 	_float_text("+%d" % creep.bounty, camera.unproject_position(world), 26, true)
 
 
-## Wave bonus, interest and early send pop up next to the resources.
+## Wave bonus and interest pop up next to the resources.
 func _on_gold_bonus(amount: int, reason: String) -> void:
-	var what: String = {"wave": "bølgebonus", "interest": "rente", "early": "tidlig"}.get(
-		reason, ""
-	)
+	var what: String = {"wave": "bølgebonus", "interest": "rente"}.get(reason, "")
 	var at := _top.position + Vector2(_top.size.x + 20.0, _top.size.y / 2.0)
 	if reason == "interest":
 		at.y += 34.0
