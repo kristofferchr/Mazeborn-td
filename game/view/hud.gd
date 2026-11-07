@@ -3,8 +3,9 @@ extends CanvasLayer
 ## Heads-up display: resources, wave controls (the start button with the
 ## countdown ring), the next-wave card (tap it for the overview of every wave
 ## left), the build menu and tower panel, health bars, floating gold, the mute
-## and pause buttons, the pause menu with the settings, and the end screen
-## (stars, record). Damage numbers, wave banners and the leak glow: HudFx.
+## and pause buttons, the pause menu with the settings, the end screen
+## (EndScreen) and toasts ("Kopiert", Toast). Damage numbers, wave banners and
+## the leak glow: HudFx.
 ## Short notices at the top: notify() (Notice). Other layers (the coach marks)
 ## go in with add_layer.
 ## Reads the game state; user actions are sent out as signals. Look: UiStyle.
@@ -21,6 +22,7 @@ signal pause_pressed
 signal resume_pressed
 signal retry_pressed  # "Prøv igjen" and "Start på nytt"
 signal maps_pressed  # "Velg kart" and "Avslutt til kart"
+signal share_pressed  # "Del replay" on the end screen
 
 const MARGIN := 20.0
 const TAG_COLORS := {
@@ -70,8 +72,6 @@ var _mute_icon: UiIcon
 var _pause: Button
 var _pause_menu: PauseMenu
 var _settings: SettingsPanel
-var _end_stars: HBoxContainer
-var _end_record: Label
 var _paused := false
 var _start: Button
 var _start_box: HBoxContainer  # countdown: ring and two lines of text
@@ -100,10 +100,7 @@ var _upgrades: HBoxContainer  # one card per upgrade option
 var _upgrades_key := ""  # tower and node the cards were made for
 var _targeting: Button
 var _sell: Button
-var _end: Control
-var _end_title: Label
-var _end_text: Label
-var _end_stats: Label
+var _end: EndScreen
 var _bars: Control
 var _floaters: Control
 var _fx: HudFx
@@ -240,26 +237,7 @@ func show_paused(on: bool) -> void:
 
 ## Stars and "Ny rekord!" on the end screen (after the game is over).
 func show_result(stars: int, new_record: bool) -> void:
-	UiStyle.set_stars(_end_stars, stars)
-	_end_stars.visible = game.phase == Game.Phase.WON
-	_end_record.visible = new_record
-	if _end_stars.visible:
-		for i in _end_stars.get_child_count():
-			var star := _end_stars.get_child(i) as Control
-			star.pivot_offset = star.custom_minimum_size / 2.0
-			star.scale = Vector2.ZERO
-			var tw := star.create_tween()
-			tw.tween_interval(0.25 + 0.18 * i)
-			(
-				tw
-				. tween_property(star, "scale", Vector2.ONE, 0.35)
-				. set_trans(Tween.TRANS_BACK)
-				. set_ease(Tween.EASE_OUT)
-			)
-	if new_record:
-		var pulse := _end_record.create_tween().set_loops()
-		pulse.tween_property(_end_record, "modulate:a", 0.7, 0.6)
-		pulse.tween_property(_end_record, "modulate:a", 1.0, 0.6)
+	_end.show_result(stars, game.phase == Game.Phase.WON, new_record)
 
 
 func _process(_delta: float) -> void:
@@ -722,60 +700,16 @@ func _kind_card(kind: String) -> Button:
 
 
 func _build_end_screen() -> void:
-	var shade := ColorRect.new()
-	shade.color = Color(0.02, 0.03, 0.05, 0.7)
-	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_end = shade
-	_end.visible = false
-	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_end.add_child(center)
-	var card := PanelContainer.new()
-	var style := UiStyle.panel(Color(0.09, 0.11, 0.15, 0.96), 28)
-	style.content_margin_left = 56
-	style.content_margin_right = 56
-	style.content_margin_top = 36
-	style.content_margin_bottom = 40
-	card.add_theme_stylebox_override("panel", style)
-	center.add_child(card)
-	var box := VBoxContainer.new()
-	box.alignment = BoxContainer.ALIGNMENT_CENTER
-	box.add_theme_constant_override("separation", 14)
-	card.add_child(box)
-	_end_stars = UiStyle.stars(0, 64)
-	_end_stars.alignment = BoxContainer.ALIGNMENT_CENTER
-	_end_stars.visible = false
-	box.add_child(_end_stars)
-	_end_title = UiStyle.label("", 76, UiStyle.ACCENT, true)
-	_end_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	box.add_child(_end_title)
-	_end_record = UiStyle.chip("Ny rekord!", UiStyle.ACCENT_DARK, 24)
-	_end_record.add_theme_color_override("font_color", UiStyle.ON_ACCENT)
-	_end_record.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	_end_record.visible = false
-	box.add_child(_end_record)
-	_end_text = UiStyle.label("", 26, UiStyle.TEXT)
-	_end_text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	box.add_child(_end_text)
-	_end_stats = UiStyle.label("", 22, UiStyle.MUTED)
-	_end_stats.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	box.add_child(_end_stats)
-	var gap := Control.new()
-	gap.custom_minimum_size = Vector2(0, 10)
-	box.add_child(gap)
-	var buttons := HBoxContainer.new()
-	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
-	buttons.add_theme_constant_override("separation", 16)
-	box.add_child(buttons)
-	var maps := _button("Velg kart", "secondary", func() -> void: maps_pressed.emit())
-	maps.custom_minimum_size = Vector2(240, 96)
-	maps.add_theme_font_size_override("font_size", 30)
-	buttons.add_child(maps)
-	var retry := _button("Prøv igjen", "primary", func() -> void: retry_pressed.emit())
-	retry.custom_minimum_size = Vector2(300, 96)
-	retry.add_theme_font_size_override("font_size", 34)
-	buttons.add_child(retry)
+	_end = EndScreen.new()
+	_end.maps_pressed.connect(func() -> void: maps_pressed.emit())
+	_end.share_pressed.connect(func() -> void: share_pressed.emit())
+	_end.retry_pressed.connect(func() -> void: retry_pressed.emit())
 	_root.add_child(_end)
+
+
+## A short message at the bottom of the screen that fades out ("Kopiert").
+func show_toast(text: String) -> void:
+	Toast.pop(_root, text, MARGIN + UiStyle.safe_insets(get_viewport()).bottom)
 
 
 func _overlay() -> Control:
@@ -964,30 +898,6 @@ func _on_game_over(won: bool) -> void:
 	_next.visible = false
 	if overview_open:
 		toggle_overview()
-	_end.visible = true
 	_pause.visible = false
 	show_paused(false)
-	var parts: Array[String] = [
-		str(game.map.get("name", "Kart")),
-		Difficulty.display_name(game.difficulty),
-		"Endeløs" if game.endless else wave_text(game),
-		"%d liv" % game.lives,
-		"%d gull" % game.gold,
-	]
-	_end_stats.text = "   ·   ".join(parts)
-	if game.endless:
-		_end_title.text = "Bølge %d" % game.score()
-		_end_title.add_theme_color_override("font_color", UiStyle.ACCENT)
-		_end_text.text = (
-			"Endeløs: mazen holdt til og med bølge %d." % game.score()
-			if game.score() > 0
-			else "Endeløs: fiendene slapp gjennom på første bølge."
-		)
-	elif won:
-		_end_title.text = "Seier!"
-		_end_title.add_theme_color_override("font_color", UiStyle.ACCENT)
-		_end_text.text = "Mazen holdt gjennom alle bølgene."
-	else:
-		_end_title.text = "Tapt"
-		_end_title.add_theme_color_override("font_color", UiStyle.DANGER)
-		_end_text.text = "Fiendene slapp gjennom på bølge %d." % game.wave
+	_end.show_for(game, won)
