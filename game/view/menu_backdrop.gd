@@ -23,7 +23,9 @@ func _ready() -> void:
 	game = Game.create_map(map_id, 7)
 	game.lives = 1 << 30
 	game.gold = 1 << 20
-	Round.add_environment(self, true)  # no shadows or glow: cheap behind a menu
+	var size := Vector2(game.grid.size)
+	var eye := maxf(size.x, size.y) * 0.85 * sqrt(1.36)  # see _place_camera
+	Round.add_environment(self, true, Round.fog_start(size, eye))  # cheap: no shadows or glow
 	board = BoardView.new()
 	add_child(board)
 	board.setup(game)
