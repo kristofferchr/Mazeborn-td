@@ -48,7 +48,8 @@ func _ready() -> void:
 		seed_value = randi()
 	game = Game.create_map(map_id, seed_value, options)
 	speed = float(UserSettings.open().speed)
-	add_environment(self)
+	var map_size := Vector2(game.grid.size)
+	add_environment(self, false, fog_start(map_size, CameraRig.fit_distance(map_size) * 1.25))
 
 	board = BoardView.new()
 	add_child(board)
@@ -315,11 +316,17 @@ func _toggle_speed() -> void:
 	hud.set_speed_text("%dx" % int(speed))
 
 
+## Depth where the fog may start so a map of this size, seen from up to
+## `eye_distance` away, is never fogged (only the land around it).
+static func fog_start(map_size: Vector2, eye_distance: float) -> float:
+	return eye_distance + map_size.length() * 0.55 + 1.0
+
+
 ## Warm late-afternoon sun with soft shadows, cool sky fill light, a dark depth
 ## fog that swallows the far land, filmic tone mapping and a little glow,
 ## added to `parent`. `cheap` leaves out the shadows
-## and the glow (behind the menus).
-static func add_environment(parent: Node, cheap := false) -> void:
+## and the glow (behind the menus). The fog starts at depth `fog_from`.
+static func add_environment(parent: Node, cheap := false, fog_from := 30.0) -> void:
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-46.0, 35.0, 0.0)
 	sun.light_color = Color(1.0, 0.93, 0.8)
@@ -342,8 +349,8 @@ static func add_environment(parent: Node, cheap := false) -> void:
 	e.fog_mode = Environment.FOG_MODE_DEPTH
 	e.fog_light_color = Color(0.1, 0.15, 0.13)
 	e.fog_density = 0.85
-	e.fog_depth_begin = 26.0
-	e.fog_depth_end = 62.0
+	e.fog_depth_begin = fog_from
+	e.fog_depth_end = fog_from + 36.0
 	e.fog_sun_scatter = 0.0
 	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	e.tonemap_exposure = 1.05
