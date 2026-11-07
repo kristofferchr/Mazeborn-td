@@ -1,7 +1,8 @@
 class_name BoardView
 extends Node3D
 ## 3D view of a Game. Only reads the game state and its signals.
-## Cell (x, y) is drawn at world (x + 0.5, 0, y + 0.5). Models: see CREDITS.md.
+## Cell (x, y) is drawn at world (x + 0.5, 0, y + 0.5). The land is built by
+## TerrainView and the tower models by TowerArt. Models: see CREDITS.md.
 
 const TOWER_COLORS := {
 	"arrow": Color(0.95, 0.75, 0.3),
@@ -16,53 +17,7 @@ const ELEMENT_COLORS := {
 	"lightning": Color(1.0, 0.92, 0.35),
 	"nature": Color(0.45, 0.9, 0.35),
 }
-## KayKit colour variant per element (the roofs).
-const ELEMENT_VARIANTS := {
-	"": "red", "fire": "red", "ice": "blue", "lightning": "yellow", "nature": "green"
-}
-const MEDIEVAL := "res://assets/kaykit_medieval/"
-## Model and scale per kind and level: towers start small and grow.
-## "%s" is the element's colour variant (Elemental).
-const TOWER_ART := {
-	"arrow":
-	[
-		["building_tower_base_yellow", 0.5],
-		["building_tower_A_yellow", 0.62],
-		["building_tower_B_yellow", 0.74],
-	],
-	"earth":
-	[
-		["building_mine_green", 0.42],
-		["building_tower_catapult_green", 0.62],
-		["building_castle_green", 0.46],
-	],
-	"wind":
-	[
-		["building_windmill_blue", 0.5],
-		["building_windmill_blue", 0.68],
-		["building_windmill_blue", 0.86],
-	],
-	"elemental":
-	[
-		["building_tower_base_red", 0.5],
-		["building_tower_A_%s", 0.62],
-		["building_tower_B_%s", 0.74],
-	],
-}
 const CANNON_BALL := "res://assets/kaykit_medieval/projectile_catapult.gltf"
-## Rock cells: tall peaks (style "mountain") or piles of boulders ("boulders").
-const MOUNTAIN_MODELS := ["mountain_A", "mountain_B", "mountain_C"]
-const BOULDER_MODELS := ["rock_single_C", "rock_single_E"]
-const PEBBLE_MODELS := ["rock_single_A", "rock_single_B", "rock_single_D"]
-const ROCK_BASE := Color(0.36, 0.33, 0.3)
-const STONE_COLORS := [Color(0.56, 0.52, 0.47), Color(0.5, 0.47, 0.43), Color(0.6, 0.57, 0.52)]
-const TREE_MODELS := [
-	"tree_single_A.gltf",
-	"tree_single_B.gltf",
-	"trees_A_small.gltf",
-	"trees_A_medium.gltf",
-	"trees_B_medium.gltf",
-]
 const BASE_SPEED := 1.7  # creep speed (cells/s) that plays the walk animation at 1x
 const DEATH_TIME := 1.0  # seconds the death animation plays before the body sinks
 const POISON_TINT := Color(0.3, 0.9, 0.2, 0.45)
@@ -82,11 +37,11 @@ const OK_COLOR := Color(0.35, 1.0, 0.55)
 const BAD_COLOR := Color(1.0, 0.3, 0.25)
 const SPAWN_COLOR := Color(0.85, 0.3, 1.0)
 const GOAL_COLOR := Color(0.35, 0.7, 1.0)
-const PLATEAU := 0.6  # height of the playfield above the land around it
 const SHADERS := "res://view/shaders/"
 
 var game: Game
 var effects: Effects  # particle bursts
+var terrain: TerrainView  # ground, cliffs, rocks, portals and the land around
 var _towers: Dictionary = {}  # Vector2i -> Node3D
 var _creeps: Dictionary = {}  # creep id -> Node3D
 var _creep_models: Dictionary = {}  # creep id -> CreepArt id
@@ -94,14 +49,12 @@ var _scenes: Dictionary = {}  # path -> PackedScene
 var _paths: Array[MeshInstance3D] = []  # one ribbon per spawn
 var _ground: ShaderMaterial
 var _ghosts: Dictionary = {}  # kind -> translucent preview model
-var _tops: Dictionary = {}  # model file -> height of the model at scale 1
 var _ghost_ok := {}  # kind -> last preview colour state
 var _cell: MeshInstance3D
 var _ring: MeshInstance3D
 var _projectiles: Dictionary = {}  # projectile id -> Node3D
 var _overlays: Dictionary = {}  # status -> shared overlay material
 var _grid_alpha := 0.05
-var _stone_mats: Array[StandardMaterial3D] = []
 
 
 static func cell_pos(cell: Vector2i, height := 0.0) -> Vector3:
@@ -317,153 +270,13 @@ func _body_meshes(node: Node3D) -> Array[Node]:
 
 
 func _build_world() -> void:
-	var size := Vector2(game.grid.size)
-	var noise := _noise_texture()
-	# Playfield on a raised plateau with a stone trim.
-	_ground = _shader("ground")
-	_ground.set_shader_parameter("noise", noise)
-	_ground.set_shader_parameter("field_size", size)
-	var field := MeshInstance3D.new()
-	field.mesh = _plane(size)
-	field.material_override = _ground
-	field.position = Vector3(size.x / 2.0, 0.0, size.y / 2.0)
-	add_child(field)
-	var trim := _mesh(_box(Vector3(size.x + 0.5, PLATEAU, size.y + 0.5)), Color(0.5, 0.48, 0.44))
-	trim.position = Vector3(size.x / 2.0, -PLATEAU / 2.0 - 0.01, size.y / 2.0)
-	(trim.material_override as StandardMaterial3D).roughness = 0.9
-	add_child(trim)
-	var cliff := _mesh(_box(Vector3(size.x + 1.1, 0.25, size.y + 1.1)), Color(0.33, 0.3, 0.26))
-	cliff.position = Vector3(size.x / 2.0, -PLATEAU + 0.12, size.y / 2.0)
-	add_child(cliff)
-	# Land around it.
-	var outer_mat := _shader("outer")
-	outer_mat.set_shader_parameter("noise", noise)
-	var outer := MeshInstance3D.new()
-	outer.mesh = _plane(size + Vector2(80, 80))
-	outer.material_override = outer_mat
-	outer.position = Vector3(size.x / 2.0, -PLATEAU, size.y / 2.0)
-	add_child(outer)
+	terrain = TerrainView.new()
+	add_child(terrain)
+	terrain.setup(game)
+	_ground = terrain.ground
 	for s in game.grid.spawns:
-		_portal(s, SPAWN_COLOR, 1.0, false)
-	_portal(game.grid.goal, GOAL_COLOR, -1.0, true)
-	_rocks()
-	_trees()
-	_outer_boulders()
-
-
-## Look hint from the map (data/maps/), e.g. "trees" or "style".
-func _decor(key: String, default: Variant) -> Variant:
-	return game.map.get("decor", {}).get(key, default)
-
-
-## Rock cells: a stone slab with peaks or boulders on top, varied per cell
-## (fixed by the cell, so the map always looks the same).
-func _rocks() -> void:
-	var style := str(_decor("style", "boulders"))
-	var slab_mat := mat(ROCK_BASE)
-	slab_mat.roughness = 0.95
-	var slab_mesh := _box(Vector3(1.0, 0.16, 1.0))
-	for cell: Vector2i in game.grid.rocks:
-		var rng := RandomNumberGenerator.new()
-		rng.seed = hash(cell) + 17
-		var slab := MeshInstance3D.new()
-		slab.mesh = slab_mesh
-		slab.material_override = slab_mat
-		slab.position = cell_pos(cell, 0.08)
-		add_child(slab)
-		var at := cell_pos(cell, 0.14)
-		if style == "mountain":
-			var file: String = MOUNTAIN_MODELS[rng.randi() % MOUNTAIN_MODELS.size()]
-			_stone(file, at, rng.randf_range(0.55, 0.66), rng)
-		else:
-			# Boulder sizes so each model about fills the cell.
-			if rng.randf() < 0.5:
-				_stone("rock_single_C", at, rng.randf_range(2.5, 2.9), rng)
-			else:
-				_stone("rock_single_E", at, rng.randf_range(1.9, 2.1), rng)
-			for i in rng.randi_range(1, 2):
-				var off := Vector3(rng.randf_range(-0.36, 0.36), 0.0, rng.randf_range(-0.36, 0.36))
-				var pebble: String = PEBBLE_MODELS[rng.randi() % PEBBLE_MODELS.size()]
-				_stone(pebble, at + off, rng.randf_range(1.2, 1.7), rng)
-
-
-## A KayKit rock model at a position with a scale, a random turn and one of the
-## stone colours.
-func _stone(file: String, at: Vector3, scale_by: float, rng: RandomNumberGenerator) -> Node3D:
-	if _stone_mats.is_empty():
-		for c: Color in STONE_COLORS:
-			var m := mat(c)
-			m.roughness = 0.9
-			_stone_mats.append(m)
-	var node := _scene(MEDIEVAL + file + ".gltf").instantiate() as Node3D
-	node.scale = Vector3.ONE * scale_by
-	node.rotation.y = rng.randf() * TAU
-	node.position = at
-	var m: StandardMaterial3D = _stone_mats[rng.randi() % _stone_mats.size()]
-	for mi: MeshInstance3D in node.find_children("*", "MeshInstance3D", true, false):
-		mi.material_override = m
-	add_child(node)
-	return node
-
-
-## Boulders on the land around the playfield (decor "boulders").
-func _outer_boulders() -> void:
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 99
-	var size := Vector2(game.grid.size)
-	var placed := 0
-	while placed < int(_decor("boulders", 0)):
-		var p := Vector2(rng.randf_range(-5.0, size.x + 5.0), rng.randf_range(-4.0, size.y + 4.0))
-		if p.x > -1.2 and p.x < size.x + 1.2 and p.y > -1.2 and p.y < size.y + 1.2:
-			continue
-		var file: String = BOULDER_MODELS[rng.randi() % BOULDER_MODELS.size()]
-		_stone(file, Vector3(p.x, -PLATEAU, p.y), rng.randf_range(2.0, 3.5), rng)
-		placed += 1
-
-
-func _noise_texture() -> NoiseTexture2D:
-	var n := FastNoiseLite.new()
-	n.seed = 7
-	n.frequency = 0.02
-	n.fractal_octaves = 3
-	var tex := NoiseTexture2D.new()
-	tex.width = 256
-	tex.height = 256
-	tex.seamless = true
-	tex.generate_mipmaps = true
-	tex.noise = n
-	return tex
-
-
-## Glowing swirl on the cell, a soft light and (for the goal) a beam of light.
-func _portal(cell: Vector2i, color: Color, direction: float, beam: bool) -> void:
-	var disk := _shaded_plane(Vector2(1.5, 1.5), "portal")
-	var m := disk.material_override as ShaderMaterial
-	m.set_shader_parameter("color", color)
-	m.set_shader_parameter("direction", direction)
-	disk.position = cell_pos(cell, 0.02)
-	add_child(disk)
-	var light := OmniLight3D.new()
-	light.light_color = color
-	light.light_energy = 1.6
-	light.omni_range = 2.6
-	light.position = cell_pos(cell, 0.6)
-	add_child(light)
-	if beam:
-		var b := MeshInstance3D.new()
-		var cyl := CylinderMesh.new()
-		cyl.top_radius = 0.45
-		cyl.bottom_radius = 0.5
-		cyl.height = 3.0
-		cyl.cap_top = false
-		cyl.cap_bottom = false
-		b.mesh = cyl
-		var bm := _shader("beam")
-		bm.set_shader_parameter("color", color)
-		b.material_override = bm
-		b.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		b.position = cell_pos(cell, 1.5)
-		add_child(b)
+		terrain.add_portal(s, SPAWN_COLOR, 1.0, false)
+	terrain.add_portal(game.grid.goal, GOAL_COLOR, -1.0, true)
 
 
 func _shader(shader_name: String) -> ShaderMaterial:
@@ -478,23 +291,6 @@ func _shaded_plane(size: Vector2, shader: String) -> MeshInstance3D:
 	n.material_override = _shader(shader)
 	n.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return n
-
-
-## Trees around the playfield (decoration only, fixed seed).
-func _trees() -> void:
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 42
-	var size := Vector2(game.grid.size)
-	for i in int(_decor("trees", 140)):
-		var p := Vector2(rng.randf_range(-8.0, size.x + 8.0), rng.randf_range(-6.0, size.y + 6.0))
-		if p.x > -1.6 and p.x < size.x + 1.6 and p.y > -1.6 and p.y < size.y + 1.6:
-			continue
-		var file: String = TREE_MODELS[rng.randi() % TREE_MODELS.size()]
-		var tree := _scene(MEDIEVAL + file).instantiate() as Node3D
-		tree.scale = Vector3.ONE * rng.randf_range(1.1, 1.6)
-		tree.rotation.y = rng.randf() * TAU
-		tree.position = Vector3(p.x, -PLATEAU, p.y)
-		add_child(tree)
 
 
 func _scene(path: String) -> PackedScene:
@@ -514,6 +310,7 @@ func _draw_path() -> void:
 	for i in _paths.size():
 		var path: Array[Vector2i] = paths[i]
 		_paths[i].mesh = _ribbon(path.slice(0, cuts[i]))
+	terrain.set_paths(paths)
 
 
 ## How many cells of each path to draw: all of it, or up to and including the
@@ -611,56 +408,7 @@ func _on_tower_upgraded(tower: Tower) -> void:
 ## Tower model at the origin for a kind, level and element (also used for the
 ## build preview and the HUD thumbnails). Meta "top" is where shots start.
 func tower_preview(kind: String, level := 0, element := "") -> Node3D:
-	var levels: Array = TOWER_ART.get(kind, TOWER_ART.arrow)
-	var art: Array = levels[clampi(level, 0, levels.size() - 1)]
-	var file := str(art[0])
-	if "%s" in file:
-		file = file % ELEMENT_VARIANTS.get(element, "red")
-	var root := Node3D.new()
-	var model := _scene(MEDIEVAL + file + ".gltf").instantiate() as Node3D
-	model.scale = Vector3.ONE * float(art[1])
-	root.add_child(model)
-	var top := _model_top(file, model) * float(art[1])
-	if kind == "elemental":
-		_orb(root, element, top, level)
-		top += 0.3
-	root.set_meta("top", top)
-	return root
-
-
-## Height of a model (cached per file).
-func _model_top(file: String, model: Node3D) -> float:
-	if not _tops.has(file):
-		var top := 0.0
-		for mi: MeshInstance3D in model.find_children("*", "MeshInstance3D", true, false):
-			var box := mi.transform * mi.get_aabb()
-			var p: Node = mi.get_parent()
-			while p and p != model:
-				box = (p as Node3D).transform * box if p is Node3D else box
-				p = p.get_parent()
-			top = maxf(top, box.end.y)
-		_tops[file] = top
-	return _tops[file]
-
-
-## Glowing element orb floating above an Elemental tower, bobbing gently.
-func _orb(root: Node3D, element: String, top: float, level: int) -> void:
-	var color: Color = ELEMENT_COLORS.get(element, ELEMENT_COLORS[""])
-	var orb := _mesh(_sphere(0.12 + 0.04 * level), color.lightened(0.2), true)
-	orb.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	var halo := _mesh(_sphere(0.22 + 0.06 * level), Color(color, 0.3), true)
-	halo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	orb.add_child(halo)
-	orb.position.y = top + 0.22
-	root.add_child(orb)
-	var tw := orb.create_tween().set_loops()
-	tw.tween_property(orb, "position:y", top + 0.32, 0.9).set_trans(Tween.TRANS_SINE)
-	tw.tween_property(orb, "position:y", top + 0.22, 0.9).set_trans(Tween.TRANS_SINE)
-	var light := OmniLight3D.new()
-	light.light_color = color
-	light.light_energy = 0.6 + 0.3 * level
-	light.omni_range = 1.6
-	orb.add_child(light)
+	return TowerArt.build(kind, level, element)
 
 
 ## Tower model on its cell; the model itself shows the level.
