@@ -75,8 +75,9 @@ func test_art_is_made_once() -> void:
 		t.check(m == FxArt.mesh(name), "%s is shared" % name)
 
 
-## A long fight with every tower kind: the projectile models, shots and bolts
-## are reused (bounded by the caps), and nothing is left once it is over.
+## A long fight with every tower kind: projectile models are drawn in one
+## batch per model, shots and bolts are bounded by the caps, and nothing is
+## left once it is over.
 func test_busy_fight_reuses_nodes() -> void:
 	var game := Game.create_map(Maps.DEFAULT, 3)
 	var board := BoardView.new()
@@ -95,6 +96,7 @@ func test_busy_fight_reuses_nodes() -> void:
 		k += 1
 	var children_after_setup := fx.get_child_count()
 	var most := Vector2i.ZERO
+	var models := 0
 	var hits: Array[int] = [0]  # lambdas capture locals by value
 	game.projectile_hit.connect(func(_p: Projectile, _c: Creep) -> void: hits[0] += 1)
 	for wave in 3:
@@ -106,15 +108,17 @@ func test_busy_fight_reuses_nodes() -> void:
 			game.step()
 			fx.update(Game.DT)
 			most = Vector2i(maxi(most.x, fx.active().x), maxi(most.y, fx.active().y))
+			models = maxi(models, fx.models_drawn())
 	var shots := hits[0]
 	t.check(shots > 100, "a busy fight (%d hits)" % shots)
 	t.check(most.y <= CombatFx.MAX_BOLTS, "bolts capped (%d)" % most.y)
-	t.check(fx.models_made() <= CombatFx.MAX_MESHES * CombatFx.MODELS.size(), "models capped")
-	t.eq(fx.get_child_count(), children_after_setup + fx.models_made(), "only pooled models added")
-	t.check(fx.models_made() < shots / 4, "models reused (%d for %d)" % [fx.models_made(), shots])
+	t.check(models > 0, "models drawn")
+	var batches := fx.get_child_count() - children_after_setup
+	t.check(batches <= CombatFx.MODELS.size(), "one batch per model (%d)" % batches)
 	game.projectiles.clear()
 	for i in 90:
 		fx.update(Game.DT)
 	t.eq(fx.active(), Vector2i.ZERO, "no shots or bolts left")
+	t.eq(fx.models_drawn(), 0, "no models drawn")
 	t.eq(fx.glow.count + fx.dust.count, 0, "particles gone")
 	board.free()

@@ -90,7 +90,7 @@ func _process(_delta: float) -> void:
 					fx_line
 					% [
 						fx.active(),
-						fx.models_made(),
+						fx.models_drawn(),
 						sprites.x,
 						sprites.y,
 						fx.ribbons.vertex_count(),

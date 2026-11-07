@@ -9,14 +9,15 @@ extends Node3D
 ## - glows, sparks, rings and smoke are sprites in two batches (FxSprites:
 ##   additive and blended), trails and bolts are one strip mesh (FxRibbons),
 ##   so they cost about three draw calls in all;
-## - projectile models come from small per-model pools (MAX_MESHES), shots and
-##   bolts are reused objects, and every batch has a fixed size;
+## - projectile models are one MultiMesh per model (MAX_MESHES each), so all
+##   shots in flight add at most five more;
+## - shots and bolts are reused objects, and every batch has a fixed size;
 ## - mesh debris goes through the pooled Effects bursts.
 ## `time_scale` 0 freezes the effects (tools/vfx.gd uses it to inspect them).
 
 const ADD_SPRITES := 640
 const MIX_SPRITES := 256
-const MAX_MESHES := 64  # projectile models per kind
+const MAX_MESHES := 64  # projectile models per kind drawn at once
 const MAX_BOLTS := 40
 const TRAIL_POINTS := 10
 const TRAIL_STEP := 0.07  # cells between trail points
@@ -45,8 +46,8 @@ var _live: Array[Shot] = []  # in flight or with a fading trail
 var _spare: Array[Shot] = []
 var _bolts: Array[Bolt] = []
 var _spare_bolts: Array[Bolt] = []
-var _pools: Dictionary = {}  # model -> Array of hidden MeshInstance3D
-var _made: Dictionary = {}  # model -> how many were made
+var _models: Dictionary = {}  # model -> MultiMeshInstance3D, refilled every frame
+var _model_count: Dictionary = {}  # model -> instances this frame
 var _rng := RandomNumberGenerator.new()
 var _frame := 0
 var _time := 0.0
@@ -61,7 +62,6 @@ class Shot:
 	var id := 0
 	var style := ""
 	var model := ""
-	var node: MeshInstance3D
 	var start := Vector2.ZERO
 	var h0 := 0.0
 	var pos := Vector3.ZERO
@@ -133,11 +133,11 @@ func active() -> Vector2i:
 	return Vector2i(_live.size(), _bolts.size())
 
 
-## Projectile models made so far (all pools), for tests.
-func models_made() -> int:
+## Projectile models drawn this frame (all batches), for tests.
+func models_drawn() -> int:
 	var n := 0
-	for k: String in _made:
-		n += int(_made[k])
+	for k: String in _model_count:
+		n += int(_model_count[k])
 	return n
 
 
@@ -170,6 +170,8 @@ func hit_point(creep: Creep) -> Vector3:
 func _update_shots(dt: float) -> void:
 	_frame += 1
 	var a := clampf(game.alpha(), 0.0, 1.0)
+	for k: String in _model_count:
+		_model_count[k] = 0
 	for p in game.projectiles:
 		var s: Shot = _shots.get(p.id)
 		if s == null:
@@ -189,6 +191,8 @@ func _update_shots(dt: float) -> void:
 				_spare.append(s)
 				continue
 		_draw_shot(s, dt)
+	for k: String in _models:
+		(_models[k] as MultiMeshInstance3D).multimesh.visible_instance_count = _model_count[k]
 
 
 func _start_shot(p: Projectile) -> Shot:
@@ -196,7 +200,6 @@ func _start_shot(p: Projectile) -> Shot:
 	s.id = p.id
 	s.style = shot_style(p.kind, p.element, p.stats)
 	s.model = MODELS.get(s.style, "")
-	s.node = _take_model(s.model) if s.model != "" else null
 	s.start = p.pos
 	var cell := Vector2i(floori(p.pos.x), floori(p.pos.y))
 	s.h0 = board.tower_top(cell)
@@ -240,8 +243,7 @@ func _fly(s: Shot, p: Projectile, a: float, dt: float) -> void:
 		if s.trail.size() > TRAIL_POINTS:
 			s.trail.remove_at(0)
 	_trim(s.trail, s.trail_length)
-	if s.node:
-		s.node.position = pos
+	if s.model != "":
 		var up := UP if absf(s.dir.y) < 0.98 else Vector3.RIGHT
 		var basis := Basis.looking_at(s.dir, up)
 		match s.style:
@@ -254,7 +256,7 @@ func _fly(s: Shot, p: Projectile, a: float, dt: float) -> void:
 			"ice":
 				s.roll += dt * 6.0
 				basis = basis * Basis(Vector3.BACK, s.roll)
-		s.node.basis = basis.scaled(Vector3.ONE * s.size)
+		_add_model(s.model, Transform3D(basis.scaled(Vector3.ONE * s.size), pos))
 
 
 ## Cuts a trail (oldest point first) to `length` cells behind its head.
@@ -291,31 +293,28 @@ static func _resample(line: PackedVector3Array, n: int, out: PackedVector3Array)
 
 func _land(s: Shot) -> void:
 	_shots.erase(s.id)
-	if s.node:
-		_give_model(s.model, s.node)
-		s.node = null
 
 
-func _take_model(model: String) -> MeshInstance3D:
-	var pool: Array = _pools.get(model, [])
-	_pools[model] = pool
-	if not pool.is_empty():
-		var reused: MeshInstance3D = pool.pop_back()
-		reused.visible = true
-		return reused
-	if int(_made.get(model, 0)) >= MAX_MESHES:
-		return null
-	_made[model] = int(_made.get(model, 0)) + 1
-	var node := MeshInstance3D.new()
-	node.mesh = FxArt.mesh(model)
-	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(node)
-	return node
-
-
-func _give_model(model: String, node: MeshInstance3D) -> void:
-	node.visible = false
-	(_pools[model] as Array).append(node)
+## Draws one projectile model this frame (dropped past MAX_MESHES).
+func _add_model(model: String, xf: Transform3D) -> void:
+	var batch: MultiMeshInstance3D = _models.get(model)
+	if batch == null:
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.mesh = FxArt.mesh(model)
+		mm.instance_count = MAX_MESHES
+		mm.visible_instance_count = 0
+		mm.custom_aabb = AABB(Vector3(-200, -50, -200), Vector3(400, 100, 400))
+		batch = MultiMeshInstance3D.new()
+		batch.multimesh = mm
+		batch.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(batch)
+		_models[model] = batch
+		_model_count[model] = 0
+	var i: int = _model_count[model]
+	if i < MAX_MESHES:
+		batch.multimesh.set_instance_transform(i, xf)
+		_model_count[model] = i + 1
 
 
 ## Glows, trail and trail particles of one shot.
