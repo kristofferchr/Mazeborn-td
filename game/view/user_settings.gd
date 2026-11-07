@@ -1,8 +1,9 @@
 class_name UserSettings
 extends RefCounted
 ## The player's settings in user://settings.cfg: mute, music and sound-effect
-## volume (0..1), the default game speed (1x or 2x) and the last map,
-## difficulty and mode chosen in the menu. save() writes these keys and keeps
+## volume (0..1), the default game speed (1x or 2x), vibration on or off,
+## whether the guided first round has been played (or skipped) and the last
+## map, difficulty and mode chosen in the menu. save() writes these keys and keeps
 ## any other key in the file. Saves are atomic and an unreadable file is kept
 ## as settings.cfg.bak (SafeConfig).
 
@@ -14,6 +15,8 @@ var muted := false
 var music_volume := 0.8
 var sfx_volume := 1.0
 var speed := 1
+var vibration := true  # Haptics on phones
+var tutorial_done := false  # the guided first round was finished or skipped
 var difficulty := Difficulty.DEFAULT
 var map_id := Maps.DEFAULT
 var mode := Progress.CLASSIC  # "classic" or "endless"
@@ -38,6 +41,8 @@ func load_file() -> void:
 	sfx_volume = clampf(float(cfg.get_value("audio", "sfx_volume", sfx_volume)), 0.0, 1.0)
 	var s := int(cfg.get_value("game", "speed", speed))
 	speed = s if s in SPEEDS else 1
+	vibration = bool(cfg.get_value("game", "vibration", vibration))
+	tutorial_done = bool(cfg.get_value("game", "tutorial_done", tutorial_done))
 	var d := str(cfg.get_value("menu", "difficulty", difficulty))
 	difficulty = d if Difficulty.exists(d) else Difficulty.DEFAULT
 	var m := str(cfg.get_value("menu", "map", map_id))
@@ -52,6 +57,8 @@ func save() -> Error:
 	cfg.set_value("audio", "music_volume", music_volume)
 	cfg.set_value("audio", "sfx_volume", sfx_volume)
 	cfg.set_value("game", "speed", speed)
+	cfg.set_value("game", "vibration", vibration)
+	cfg.set_value("game", "tutorial_done", tutorial_done)
 	cfg.set_value("menu", "difficulty", difficulty)
 	cfg.set_value("menu", "map", map_id)
 	cfg.set_value("menu", "mode", mode)

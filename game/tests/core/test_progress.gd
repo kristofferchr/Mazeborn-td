@@ -175,3 +175,13 @@ func test_endless_is_kept_apart_from_classic() -> void:
 	cfg.load(TEMP)
 	t.check(cfg.has_section_key("engen", "hard_endless"), "endless key in the file")
 	_clean_up()
+
+
+func test_passing_the_endless_record_mid_round() -> void:
+	t.check(not Progress.passes_record(0, 5), "no earlier record: nothing to pass")
+	t.check(not Progress.passes_record(12, 12), "level with it")
+	t.check(Progress.passes_record(12, 13), "past it")
+	var p := Progress.new(TEMP)
+	t.check(p.is_empty(), "a new player has no results")
+	p.record("engen", "normal", _endless(3))
+	t.check(not p.is_empty(), "one result")

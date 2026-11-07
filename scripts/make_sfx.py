@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Synthesizes all of Mazeborn TD's sound effects and the two music layers.
+"""Synthesizes all of Mazeborn TD's sound effects, the two music layers and the menu music.
 
 Usage: scripts/make_sfx.py [out-dir]        (default: game/assets/audio)
        scripts/make_sfx.py --only fire_ice  (one sound, for tweaking)
@@ -650,6 +650,47 @@ def music_battle():
             place(buf, stab, start, 0.25, wrap=True)
     buf = reverb(lowpass(buf, 5000), rng, 1.4, 0.3, circular=True, damp=2500)
     return finish(buf, -3.0, fade=0.0, trim=False)
+
+
+# The menu track: slower, one chord per bar, (root midi note, chord intervals).
+MENU_BPM = 66
+MENU_PROGRESSION = [
+    (53, (0, 4, 7)),  # F
+    (45, (0, 3, 7)),  # Am
+    (50, (0, 3, 7)),  # Dm
+    (46, (0, 4, 7)),  # Bb
+    (53, (0, 4, 7)),  # F
+    (48, (0, 4, 7)),  # C
+    (46, (0, 4, 7)),  # Bb
+    (48, (0, 4, 7)),  # C
+]
+# Sparse bell melody: (beat from the start, midi note).
+MENU_MELODY = [
+    (2, 77), (3, 76), (6, 72), (10, 74), (11, 72), (14, 69),
+    (18, 77), (19, 79), (22, 81), (26, 79), (27, 77), (30, 76),
+]
+
+
+@sound
+def music_menu():
+    """Title and map select: a warm pad, a slow bell arpeggio, a soft bass and a
+    few bell notes. Loops; plays on its own (not in sync with the round music)."""
+    rng = rng_for("music_menu")
+    beat = 60.0 / MENU_BPM
+    bars = len(MENU_PROGRESSION)
+    buf = np.zeros(int(round(bars * 4 * beat * SR)))
+    for i, (root, chord) in enumerate(MENU_PROGRESSION):
+        start = i * 4 * beat
+        notes = [midi(root + 12 + iv) for iv in chord]
+        place(buf, pad(notes, 4 * beat + 0.8), start, 0.11, wrap=True)
+        place(buf, pluck(midi(root - 12), 3.2, 1.6, 5, 0.4), start, 0.3, wrap=True)
+        for j, iv in enumerate((0, chord[1], chord[2], 12, chord[2], chord[1], 12, chord[2])):
+            gain = 0.1 if j % 2 == 0 else 0.07
+            place(buf, bell(midi(root + 24 + iv), 1.6, 0.7, 0.5), start + j * beat / 2, gain, wrap=True)
+    for at, n in MENU_MELODY:
+        place(buf, bell(midi(n), 2.4, 1.0, 0.7), at * beat, 0.16, wrap=True)
+    buf = reverb(lowpass(buf, 4500), rng, 2.6, 0.5, circular=True, damp=2200)
+    return finish(buf, -4.0, fade=0.0, trim=False)
 
 
 # --- Output -------------------------------------------------------------------
