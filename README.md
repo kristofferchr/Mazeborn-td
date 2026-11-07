@@ -12,13 +12,13 @@ Tower defense for iOS i klassisk Warcraft 3-stil: 3D-grafikk oppå 2D-logikk på
 
 ```
 game/            Godot-prosjektet
-  core/          spillregler som ren 2D-logikk (Grid, Game, Creep, Tower, Difficulty, Progress), testes headless
+  core/          spillregler som ren 2D-logikk (Grid, Game, Creep, Tower, Difficulty, Progress, Replay), testes headless
   data/          bølger og økonomi (waves.json), tårntyper (towers.json), fiendetyper (creeps.json) og vanskelighetsgrader (difficulty.json)
   data/maps/     kart som data: størrelse, portaler, mål, steiner og regler (én JSON per kart)
-  view/          3D-lag, HUD, lyd og menyer som bare leser tilstanden (BoardView, Effects, CameraRig, Hud, HudFx, WaveOverview, GameAudio, TitleScreen, MapSelect, PauseMenu, SettingsPanel, UserSettings)
+  view/          3D-lag, HUD, lyd og menyer som bare leser tilstanden (BoardView, Effects, CameraRig, Hud, HudFx, EndScreen, Toast, ReplayShare, WaveOverview, GameAudio, TitleScreen, MapSelect, PauseMenu, SettingsPanel, UserSettings)
   main.tscn      appen: startskjerm, kartvalg, deretter en runde (round.tscn)
-  tests/         headless tester (scripts/test.sh)
-  tools/         skjermbilde, demo-scener og balanse-bot (ikke med i eksporten)
+  tests/         headless tester (scripts/test.sh), regresjons-replays i tests/replays/
+  tools/         skjermbilde, demo-scener, balanse-bot og replay-verktøy (ikke med i eksporten)
 ios/             eksportert Xcode-prosjekt og ci_scripts for Xcode Cloud
 scripts/         godot.sh (pinnet versjon), export-ios.sh, export-web.sh, screenshot.sh, make_sfx.py (lyd), asc_builds.py og asc_whats_new.py (TestFlight)
 .godot-version   Godot-versjonen som brukes overalt
@@ -38,6 +38,10 @@ Endeløs modus (`Game.create_map(id, seed, {"mode": "endless"})`, velgeren Klass
 
 `game/data/difficulty.json` har Lett, Normal, Vanskelig og Ekstrem. Hver grad skalerer oppsettet etter kartets regler: `hp_scale` (ganges med kartets), `start_gold_scale`, `lives_scale`, `bounty_scale` og `interest_scale`; Normal er uendret. Graden velges i kartvalget og sendes som `{"difficulty": "hard", "mode": "classic"}` til `Game.create_map(id, seed, options)` (ukjente nøkler beholdes i `Game.options`). Beste resultat per kart, grad og modus lagres i `user://progress.cfg` (`Progress`): 1 stjerne for seier, 2 med minst halvparten av livene igjen, 3 uten lekkasjer. Innstillinger (lydstyrke, standard fart, siste valg) ligger i `user://settings.cfg`. Boten bør vinne Lett og Normal, vinne knapt eller tape på Vanskelig og stort sett tape på Ekstrem.
 
+## Replay
+
+En runde er helt bestemt av kart-id, valg (`difficulty`, `mode`), seed og spillerens handlinger med tick. Alle handlinger går gjennom `Game.apply({"type": ...})` (`build`, `sell`, `upgrade`, `start_wave` (også «Send nå»), `target`), som utfører og lagrer dem i `Game.actions`; ugyldige handlinger avvises og lagres ikke, likt ved opptak og avspilling. `Replay` (`game/core/replay.gd`) lager et opptak (`Replay.record(game)`), skriver og leser JSON (`format`, `version`, `platform`, `engine`, `app_version`, `map`, `options`, `seed` (helt tall, høyst 2^53), `actions`, `result`) og spiller det av i et nytt spill (`play(game, until_tick)`); `diff(game)` sammenligner sluttilstanden (gull, liv, bølge, klarert, fase, tick og tårnene) med `result`. En oppgradering lagres med id-en til valget som faktisk ble tatt. Samme utfall er bare garantert på samme plattform og bygg (Godot-versjon og app-versjon): flyttallsregning (FMA, avrunding) kan avvike mellom arm64 og x86, og `tools/replay.gd` advarer når replayet er tatt opp på et annet bygg. Siste runde lagres i `user://replays/last.replay.json`, og de siste 10 rundene ved siden av som `<UTC-tid>-<nr>-<kart>.replay.json` (atomisk, via `SafeConfig.save_text`). En runde som pågår når appen går i bakgrunnen eller lukkes, skrives til `last.replay.json`. «Del replay» på sluttskjermen laster ned filen på web og kopierer JSON-en til utklippstavlen ellers (iOS har ingen delingsmeny i Godot uten plugin). Regresjons-replayene i `game/tests/replays/` spilles av i testene; endres balansen med vilje, lag dem på nytt med `--record` (se under).
+
 ## Kommandoer
 
 ```bash
@@ -51,6 +55,10 @@ scripts/screenshot.sh shot.png res://tools/demo.tscn 30 2532x1170  # maze midt i
 DEMO_MAP=klofta scripts/screenshot.sh shot.png res://tools/demo.tscn 30 2532x1170  # samme på et annet kart
 scripts/screenshot.sh shot.png res://tools/juice.tscn 8 2532x1170   # banner, skadetall og partikler
 DEMO_STATE=countdown scripts/screenshot.sh shot.png res://tools/demo.tscn 30 2532x1170  # nedtelling (også overview, endless)
+scripts/godot.sh --headless --path game -s res://tools/replay.gd -- game/tests/replays/klofta-normal-classic.replay.json  # spill av og sjekk et replay
+scripts/godot.sh --headless --path game -s res://tools/replay.gd -- --record game/tests/replays/klofta-normal-classic.replay.json klofta 7 normal classic  # boten tar opp et replay (endless: ... hard endless 16)
+REPLAY=game/tests/replays/klofta-normal-classic.replay.json REPLAY_TICK=4000 scripts/screenshot.sh shot.png res://tools/demo.tscn 30 2532x1170  # runden i et replay ved et tick
+MENU=shared scripts/screenshot.sh shot.png res://tools/menus.tscn 30 2532x1170  # sluttskjermen etter «Del replay»
 scripts/make_sfx.py                   # lager alle lydeffekter og musikken i game/assets/audio/
 scripts/godot.sh --headless --path game -s res://tools/balance.gd   # bot spiller alle kartene
 scripts/godot.sh --headless --path game -s res://tools/balance.gd -- klofta 7  # ett kart, seed 7
