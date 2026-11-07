@@ -15,7 +15,7 @@ game/            Godot-prosjektet
   core/          spillregler som ren 2D-logikk (Grid, Game, Creep, Tower, Difficulty, Progress), testes headless
   data/          bølger og økonomi (waves.json), tårntyper (towers.json), fiendetyper (creeps.json) og vanskelighetsgrader (difficulty.json)
   data/maps/     kart som data: størrelse, portaler, mål, steiner og regler (én JSON per kart)
-  view/          3D-lag, HUD, lyd og menyer som bare leser tilstanden (BoardView, Effects, CameraRig, Hud, HudFx, WaveOverview, GameAudio, TitleScreen, MapSelect, PauseMenu, SettingsPanel, UserSettings)
+  view/          3D-lag, HUD, lyd og menyer som bare leser tilstanden (BoardView, TerrainView, TowerArt, Effects, CameraRig, Hud, HudFx, WaveOverview, GameAudio, TitleScreen, MapSelect, PauseMenu, SettingsPanel, UserSettings)
   main.tscn      appen: startskjerm, kartvalg, deretter en runde (round.tscn)
   tests/         headless tester (scripts/test.sh)
   tools/         skjermbilde, demo-scener og balanse-bot (ikke med i eksporten)
@@ -56,5 +56,6 @@ scripts/godot.sh --headless --path game -s res://tools/balance.gd   # bot spille
 scripts/godot.sh --headless --path game -s res://tools/balance.gd -- klofta 7  # ett kart, seed 7
 scripts/godot.sh --headless --path game -s res://tools/balance.gd -- all 3 all  # alle kart på alle grader
 scripts/godot.sh --headless --path game -s res://tools/balance.gd -- all 3 normal endless  # modus: wait (standard), early, endless, endless-early
+scripts/screenshot.sh shot.png res://tools/towers.tscn 30 2532x1170  # alle tårn på alle nivåer på nært hold (TOWERS_DIST=6)
 MENU=maps scripts/screenshot.sh shot.png res://tools/menus.tscn 30 2532x1170  # menyer: title, title_settings, maps, pause, settings, won, lost
 ```
