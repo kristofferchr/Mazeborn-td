@@ -12,10 +12,10 @@ Tower defense for iOS i klassisk Warcraft 3-stil: 3D-grafikk oppå 2D-logikk på
 
 ```
 game/            Godot-prosjektet
-  core/          spillregler som ren 2D-logikk (Grid, Game, Creep, Tower, Difficulty, Progress, Replay), testes headless
+  core/          spillregler som ren 2D-logikk (Grid, Game, Creep, Tower, Difficulty, Progress, Replay, Onboarding), testes headless
   data/          bølger og økonomi (waves.json), tårntyper (towers.json), fiendetyper (creeps.json) og vanskelighetsgrader (difficulty.json)
   data/maps/     kart som data: størrelse, portaler, mål, steiner og regler (én JSON per kart)
-  view/          3D-lag, HUD, lyd og menyer som bare leser tilstanden (BoardView, Effects, CameraRig, Hud, HudFx, EndScreen, Toast, ReplayShare, WaveOverview, GameAudio, TitleScreen, MapSelect, PauseMenu, SettingsPanel, UserSettings)
+  view/          3D-lag, HUD, lyd og menyer som bare leser tilstanden (BoardView, Effects, CameraRig, Hud, HudFx, EndScreen, Toast, Notice, CoachMarks, ReplayShare, WaveOverview, GameAudio, Haptics, TitleScreen, MapSelect, PauseMenu, SettingsPanel, UserSettings)
   main.tscn      appen: startskjerm, kartvalg, deretter en runde (round.tscn)
   tests/         headless tester (scripts/test.sh), regresjons-replays i tests/replays/
   tools/         skjermbilde, demo-scener, balanse-bot og replay-verktøy (ikke med i eksporten)
@@ -42,6 +42,10 @@ Endeløs modus (`Game.create_map(id, seed, {"mode": "endless"})`, velgeren Klass
 
 En runde er helt bestemt av kart-id, valg (`difficulty`, `mode`), seed og spillerens handlinger med tick. Alle handlinger går gjennom `Game.apply({"type": ...})` (`build`, `sell`, `upgrade`, `start_wave` (også «Send nå»), `target`), som utfører og lagrer dem i `Game.actions`; ugyldige handlinger avvises og lagres ikke, likt ved opptak og avspilling. `Replay` (`game/core/replay.gd`) lager et opptak (`Replay.record(game)`), skriver og leser JSON (`format`, `version`, `platform`, `engine`, `app_version`, `map`, `options`, `seed` (helt tall, høyst 2^53), `actions`, `result`) og spiller det av i et nytt spill (`play(game, until_tick)`); `diff(game)` sammenligner sluttilstanden (gull, liv, bølge, klarert, fase, tick og tårnene) med `result`. En oppgradering lagres med id-en til valget som faktisk ble tatt. Samme utfall er bare garantert på samme plattform og bygg (Godot-versjon og app-versjon): flyttallsregning (FMA, avrunding) kan avvike mellom arm64 og x86, og `tools/replay.gd` advarer når replayet er tatt opp på et annet bygg. Siste runde lagres i `user://replays/last.replay.json`, og de siste 10 rundene ved siden av som `<UTC-tid>-<nr>-<kart>.replay.json` (atomisk, via `SafeConfig.save_text`). En runde som pågår når appen går i bakgrunnen eller lukkes, skrives til `last.replay.json`. «Del replay» på sluttskjermen laster ned filen på web og kopierer JSON-en til utklippstavlen ellers (iOS har ingen delingsmeny i Godot uten plugin). Regresjons-replayene i `game/tests/replays/` spilles av i testene; endres balansen med vilje, lag dem på nytt med `--record` (se under).
 
+## Veiledning, haptikk og lyd
+
+Første gang man trykker «Spill» (uten lagrede resultater) starter en guidet runde på Engen: bygg et tårn, bygg en vegg så stien blir lengre, start bølgen, oppgrader eller selg, og nedtellingen med «Send nå». Hvert steg går videre når spilleren faktisk gjør det (`Onboarding` lytter på `Game`-signalene), og «Hopp over» avslutter. At den er gjort, lagres i `settings.cfg` (`tutorial_done`), og den kan spilles igjen med «Vis veiledning» i innstillingene på startskjermen. Vibrasjon (`Haptics`) gir et lett støt ved bygg, oppgradering og salg og et kraftigere ved lekkasje og når en boss dør, bare på iOS og Android (av/på i innstillingene). Menyene har egen musikk (`music_menu`) og klikkelyd; appen har én `GameAudio` som går over til rundemusikken når en runde starter. Korte beskjeder øverst vises med `Notice` (`hud.notify()`), f.eks. «Rekord!» når en endeløs runde går forbi forrige beste bølge.
+
 ## Kommandoer
 
 ```bash
@@ -64,5 +68,6 @@ scripts/godot.sh --headless --path game -s res://tools/balance.gd   # bot spille
 scripts/godot.sh --headless --path game -s res://tools/balance.gd -- klofta 7  # ett kart, seed 7
 scripts/godot.sh --headless --path game -s res://tools/balance.gd -- all 3 all  # alle kart på alle grader
 scripts/godot.sh --headless --path game -s res://tools/balance.gd -- all 3 normal endless  # modus: wait (standard), early, endless, endless-early
+COACH=maze scripts/screenshot.sh shot.png res://tools/coach.tscn 40 2532x1170  # veiledning: build, build_selected, maze, start, tower, tower_selected, countdown, done
 MENU=maps scripts/screenshot.sh shot.png res://tools/menus.tscn 30 2532x1170  # menyer: title, title_settings, maps, pause, settings, won, lost
 ```

@@ -12,6 +12,8 @@ extends Node3D
 ## through Game.apply, so the round is recorded: when it ends (or is left) it is
 ## kept as a replay (Replay.store), and "Del replay" on the end screen shares it
 ## (ReplayShare).
+## With "tutorial" in the options the coach marks guide the player
+## (CoachMarks, Onboarding).
 
 signal retry_requested  # "Prøv igjen" / "Start på nytt": the same map again
 signal maps_requested  # "Velg kart" / "Avslutt til kart": back to the map select
@@ -37,6 +39,7 @@ var build_kind := "arrow"  # tower kind chosen in the build menu
 var _touches: Dictionary = {}  # index -> position
 var _tap_start := Vector2.ZERO
 var _tap_valid := false
+var _record_wave := 0  # endless: the best wave before this round (0: no notice)
 var _replay_saved := false
 
 
@@ -74,13 +77,19 @@ func _ready() -> void:
 	hud.resume_pressed.connect(set_paused.bind(false))
 	hud.set_speed_text("%dx" % int(speed))
 	game.game_over.connect(_on_game_over)
+	Haptics.load_setting(UserSettings.open())
+	Haptics.watch(game)
+	_watch_record()
 
-	audio = GameAudio.new()
-	add_child(audio)
+	if audio == null:  # on its own; in the app the menus' GameAudio carries on
+		audio = GameAudio.new()
+		add_child(audio)
 	audio.setup(game)
 	hud.set_muted(audio.muted)
 	hud.mute_pressed.connect(audio.toggle_muted)
 	audio.muted_changed.connect(hud.set_muted)
+	if Onboarding.is_tutorial(options):  # the guided first round
+		CoachMarks.new().setup(self)
 	game.creep_leaked.connect(func(c: Creep) -> void: camera.shake(_shake_for(c, true)))
 	game.creep_killed.connect(func(c: Creep) -> void: camera.shake(_shake_for(c, false)))
 
@@ -143,6 +152,23 @@ func _save_replay(final := true) -> void:
 func _share_replay() -> void:
 	var replay := Replay.record(game)
 	hud.show_toast(ReplayShare.share(replay.to_json(), replay.file_name()))
+
+
+## Endless: a "Rekord!" notice the first time the round passes the best wave
+## reached before.
+func _watch_record() -> void:
+	if progress_path == "" or Progress.mode_of(game.options) != Progress.ENDLESS:
+		return
+	var best := Progress.open(progress_path).best(map_id, game.difficulty, Progress.ENDLESS)
+	_record_wave = int(best.get("wave", 0))
+	if _record_wave > 0:
+		game.wave_cleared.connect(_on_wave_cleared_record)
+
+
+func _on_wave_cleared_record(_number: int) -> void:
+	if Progress.passes_record(_record_wave, game.score()):
+		hud.notify("Rekord!", "Forbi forrige beste: bølge %d" % _record_wave)
+		_record_wave = 0
 
 
 ## Restarts the map: the app (main.gd) makes a new round; on its own the scene
