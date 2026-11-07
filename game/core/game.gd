@@ -295,13 +295,12 @@ func sell(cell: Vector2i) -> int:
 ## the current tick. The actions:
 ##   {"type": "build", "cell": c, "kind": "arrow"}
 ##   {"type": "sell", "cell": c}
-##   {"type": "upgrade", "cell": c, "option": id}  ("" or missing: the first)
+##   {"type": "upgrade", "cell": c, "option": id}  ("": the first, recorded by id)
 ##   {"type": "start_wave"}  (also sends the next wave early)
 ##   {"type": "target", "cell": c, "mode": "first" | "closest"}
 ## A cell is a Vector2i or [x, y]. An action that is not possible now (too
 ## little gold, a blocked cell, the round is over ...) or not well-formed
-## returns false and changes and records nothing. Replays go through here as
-## well, so they accept and reject exactly the same actions.
+## returns false and changes and records nothing. Replays use it too (same rules).
 func apply(action: Dictionary) -> bool:
 	var type := str(action.get("type", ""))
 	var cell := action_cell(action.get("cell"))
@@ -315,6 +314,7 @@ func apply(action: Dictionary) -> bool:
 		"sell":
 			ok = tower != null and not is_over() and sell(cell) >= 0
 		"upgrade":
+			arg = tower.upgrade_options()[0] if arg == "" and tower and tower.can_upgrade() else arg
 			ok = upgrade(cell, arg)
 		"start_wave":
 			ok = start_wave()

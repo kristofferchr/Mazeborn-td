@@ -12,6 +12,11 @@ extends RefCounted
 ## user://replays/last.replay.json, and the last KEEP rounds are kept next to
 ## it (store). Pure apart from the thin file helpers (save_file, load_file,
 ## store, history).
+##
+## The file also names the build it was recorded on ("platform", "engine",
+## "app_version"; see build_differences). A replay is only guaranteed to play
+## out the same on the same platform and build: float math (FMA, rounding) can
+## differ between arm64 and x86 and between engine versions.
 
 const FORMAT := "mazeborn-replay"
 const VERSION := 1
@@ -20,6 +25,8 @@ const LAST := "last.replay.json"
 const EXT := ".replay.json"
 const KEEP := 10  # rounds kept besides last.replay.json
 const MAX_TICKS := 30 * 60 * 60 * 4  # a replay without an end stops after 4 hours
+const MAX_SEED := 1 << 53  # larger seeds do not survive JSON (doubles)
+const BUILD_KEYS: Array[String] = ["platform", "engine", "app_version"]
 
 var map_id := ""
 var options: Dictionary = {}
@@ -27,6 +34,16 @@ var seed_value := 0
 var actions: Array[Dictionary] = []
 var result: Dictionary = {}  # state_of the game when it was recorded
 var rejected: Array[int] = []  # indices of the actions the last play() could not apply
+var build: Dictionary = {}  # platform, engine, app_version it was recorded on
+
+
+## The build running now: {"platform", "engine", "app_version"}.
+static func current_build() -> Dictionary:
+	return {
+		"platform": OS.get_name(),
+		"engine": str(Engine.get_version_info().string),
+		"app_version": str(ProjectSettings.get_setting("application/config/version", "")),
+	}
 
 
 ## The replay of a game so far: its map, options, seed, actions and state.
@@ -37,7 +54,18 @@ static func record(game: Game) -> Replay:
 	r.seed_value = game.seed_value
 	r.actions = game.actions.duplicate(true)
 	r.result = state_of(game)
+	r.build = current_build()
 	return r
+
+
+## "platform: iOS != Linux" for each way the recording build differs from
+## `now` (default: the running build); empty if it is the same.
+func build_differences(now := current_build()) -> Array[String]:
+	var out: Array[String] = []
+	for key in BUILD_KEYS:
+		if not build.has(key) or str(build[key]) != str(now.get(key, "")):
+			out.append("%s: %s != %s" % [key, build.get(key, "?"), now.get(key, "")])
+	return out
 
 
 ## What a replay must reproduce: gold, lives, waves, phase, ticks and every
@@ -103,7 +131,7 @@ func diff(game: Game) -> Array[String]:
 
 
 func to_dict() -> Dictionary:
-	return {
+	var d := {
 		"format": FORMAT,
 		"version": VERSION,
 		"map": map_id,
@@ -112,6 +140,9 @@ func to_dict() -> Dictionary:
 		"actions": actions,
 		"result": result,
 	}
+	for key in BUILD_KEYS:
+		d[key] = str(build.get(key, ""))
+	return d
 
 
 ## JSON with one action per line, so files diff well.
@@ -120,7 +151,7 @@ func to_json() -> String:
 	for a in actions:
 		lines.append("    " + JSON.stringify(a, "", false))
 	var head := []
-	for key: String in ["format", "version", "map", "options", "seed"]:
+	for key: String in ["format", "version"] + BUILD_KEYS + ["map", "options", "seed"]:
 		head.append('  "%s": %s' % [key, JSON.stringify(to_dict()[key], "", false)])
 	return (
 		'{\n%s,\n  "actions": [\n%s\n  ],\n  "result": %s\n}\n'
@@ -137,12 +168,22 @@ static func from_json(text: String) -> Replay:
 	var r := Replay.new()
 	r.map_id = str(d.map)
 	r.options = (d.options as Dictionary).duplicate(true)
-	r.seed_value = int(d.seed)
+	r.seed_value = int(d.seed)  # whole and within 2^53 (error_of)
 	for a: Dictionary in d.actions:
 		r.actions.append(a)
 	var res: Variant = d.get("result", {})
 	r.result = res if res is Dictionary else {}
+	for key in BUILD_KEYS:
+		if d.has(key):
+			r.build[key] = str(d[key])
 	return r
+
+
+## True for a seed a replay can keep: a whole number up to 2^53 either way.
+static func valid_seed(v: Variant) -> bool:
+	if v is float:
+		return is_finite(v) and v == floorf(v) and absf(v) <= float(MAX_SEED)
+	return v is int and absi(v) <= MAX_SEED
 
 
 ## Why parsed JSON is not a replay this version can play ("" if it is one).
@@ -160,8 +201,11 @@ static func error_of(data: Variant) -> String:
 		return "unknown map %s" % d.get("map")
 	if not d.get("options") is Dictionary:
 		return "no options"
-	if not (d.get("seed") is float or d.get("seed") is int):
-		return "no seed"
+	var level: Variant = (d.options as Dictionary).get("difficulty", Difficulty.DEFAULT)
+	if not level is String or not Difficulty.exists(level):
+		return "unknown difficulty %s" % level
+	if not valid_seed(d.get("seed")):
+		return "the seed %s is not a whole number up to 2^53" % d.get("seed")
 	if not d.get("actions") is Array:
 		return "no actions"
 	for a: Variant in d.actions:
@@ -195,37 +239,44 @@ static func load_file(path: String) -> Replay:
 
 ## Keeps a finished round: as dir/last.replay.json and as
 ## dir/<stamp>-<map>.replay.json, then removes all but the newest KEEP of the
-## latter. stamp defaults to the local time ("20261106-143005-123").
-static func store(replay: Replay, dir := DIR, stamp := "") -> Error:
+## latter (with keep false only last.replay.json, for a round in progress).
+## stamp defaults to the time in UTC ("20261106-143005-123"). Names
+## with the same stamp get a counter before the map, so they sort in order.
+static func store(replay: Replay, dir := DIR, stamp := "", keep := true) -> Error:
 	var err := DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(dir))
 	if err != OK:
 		return err
 	var text := replay.to_json()
 	err = SafeConfig.save_text(text, dir.path_join(LAST))
-	if err != OK:
+	if err != OK or not keep:
 		return err
 	if stamp == "":
-		var now := Time.get_unix_time_from_system()
-		stamp = (
-			"%s-%03d"
-			% [
-				Time.get_datetime_string_from_system().replace("-", "").replace(":", "").replace(
-					"T", "-"
-				),
-				int(fmod(now, 1.0) * 1000.0),
-			]
-		)
-	var base := "%s-%s" % [stamp, replay.map_id]
-	var path := dir.path_join(base + EXT)
-	var n := 2
-	while FileAccess.file_exists(path):
-		path = dir.path_join("%s-%d%s" % [base, n, EXT])
+		stamp = stamp_of(Time.get_unix_time_from_system())
+	var taken := DirAccess.get_files_at(dir)
+	var n := 0
+	while _has_prefix(taken, "%s-%02d-" % [stamp, n]):
 		n += 1
+	var path := dir.path_join("%s-%02d-%s%s" % [stamp, n, replay.map_id, EXT])
 	err = SafeConfig.save_text(text, path)
 	var kept := history(dir)
 	for i in maxi(kept.size() - KEEP, 0):
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(kept[i]))
 	return err
+
+
+## "20261106-143005-123": a unix time in UTC, the milliseconds from the same value.
+static func stamp_of(unix_time: float) -> String:
+	var seconds := floori(unix_time)
+	var ms := clampi(floori((unix_time - seconds) * 1000.0), 0, 999)
+	var date := Time.get_datetime_string_from_unix_time(seconds)  # UTC
+	return "%s-%03d" % [date.replace("-", "").replace(":", "").replace("T", "-"), ms]
+
+
+static func _has_prefix(files: PackedStringArray, prefix: String) -> bool:
+	for f in files:
+		if f.begins_with(prefix):
+			return true
+	return false
 
 
 ## The kept rounds in dir (not last.replay.json), oldest first.
@@ -240,7 +291,7 @@ static func history(dir := DIR) -> Array[String]:
 
 ## JSON numbers are floats: whole ones become ints again (ticks, cells, gold).
 static func _ints(v: Variant) -> Variant:
-	if v is float and is_finite(v) and v == floorf(v) and absf(v) < 9.0e15:
+	if v is float and is_finite(v) and v == floorf(v) and absf(v) <= float(MAX_SEED):
 		return int(v)
 	if v is Array:
 		var out := []

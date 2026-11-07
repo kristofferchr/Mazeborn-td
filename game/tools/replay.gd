@@ -6,6 +6,9 @@ extends SceneTree
 ## e.g. to make the regression replays in tests/replays/ again after a balance
 ## change: classic rounds send waves early; endless stops after max_waves.
 ## Paths may be relative to the directory the command runs in, or user://.
+## It also prints the build the replay was recorded on and warns when it is not
+## this one: a match is only guaranteed on the same platform and build (float
+## math such as FMA can differ between arm64 and x86).
 ## Usage: scripts/godot.sh --headless --path game -s res://tools/replay.gd -- <file>
 ##   ... -- --record <out> <map> <seed> [difficulty] [classic|endless] [max_waves]
 
@@ -48,6 +51,21 @@ func _play(path: String) -> int:
 			]
 		)
 	)
+	print(
+		(
+			"build   %s   engine %s   app %s"
+			% [
+				r.build.get("platform", "?"),
+				r.build.get("engine", "?"),
+				r.build.get("app_version", "?")
+			]
+		)
+	)
+	var other := r.build_differences()
+	if not other.is_empty():
+		print(
+			"WARNING recorded on another build, it may not play out the same: " + ", ".join(other)
+		)
 	var on_cleared := func(n: int) -> void:
 		print(
 			(
@@ -90,12 +108,18 @@ func _record(args: Array[String]) -> int:
 		printerr("usage: --record <out> <map> <seed> [difficulty] [classic|endless] [max_waves]")
 		return 2
 	var out := _resolve(args[0], false)
+	if not args[2].is_valid_int() or not Replay.valid_seed(args[2].to_int()):
+		printerr("the seed must be a whole number up to 2^53: %s" % args[2])
+		return 2
+	if args.size() > 3 and not Difficulty.exists(args[3]):
+		printerr("unknown difficulty: %s" % args[3])
+		return 2
 	var options := {
 		"difficulty": args[3] if args.size() > 3 else Difficulty.DEFAULT,
 		"mode": args[4] if args.size() > 4 else Progress.CLASSIC,
 	}
 	var max_waves := int(args[5]) if args.size() > 5 else 0
-	var g := Game.create_map(args[1], int(args[2]), options)
+	var g := Game.create_map(args[1], args[2].to_int(), options)
 	var bot := Bot.new(g, true)
 	bot.play(
 		func(b: Bot) -> void:

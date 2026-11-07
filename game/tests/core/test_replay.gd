@@ -54,13 +54,49 @@ func test_apply_performs_and_records_actions() -> void:
 	g.gold = 1000
 	t.check(g.apply({"type": "upgrade", "cell": cell}), "upgrade (first option)")
 	t.eq(g.tower_at(cell).level, 1, "upgraded")
+	var took := g.tower_at(cell).node_id
 	t.check(g.apply({"type": "sell", "cell": cell}), "sell")
 	t.check(g.tower_at(cell) == null, "sold")
 	t.eq(_types(g), ["build", "target", "start_wave", "upgrade", "sell"] as Array[String], "types")
 	t.eq(g.actions[0], {"tick": 0, "type": "build", "cell": [5, 3], "kind": "arrow"}, "build entry")
 	t.eq(g.actions[1].mode, "closest", "target mode recorded")
 	t.eq(g.actions[3].tick, 60, "stamped with the tick (2 s)")
-	t.eq(g.actions[3].option, "", "the first option is recorded as it was asked")
+	t.eq(g.actions[3].option, took, "the first option is recorded by its id")
+
+
+func test_upgrade_records_the_option_it_took() -> void:
+	var g := Game.create_map("engen", 3)
+	g.gold = 5000
+	var cell := Vector2i(5, 3)
+	g.apply({"type": "build", "cell": cell, "kind": "elemental"})
+	var options := g.tower_at(cell).upgrade_options()
+	t.check(options.size() > 1, "elemental branches")
+	t.check(g.apply({"type": "upgrade", "cell": cell}), "upgrade without an option")
+	t.eq(g.actions[-1].option, options[0], "the resolved first option")
+	var next := g.tower_at(cell).upgrade_options()
+	t.check(g.apply({"type": "upgrade", "cell": cell, "option": next[-1]}), "a named option")
+	t.eq(g.actions[-1].option, next[-1], "the named option")
+	t.eq(g.tower_at(cell).node_id, next[-1], "and took it")
+	var before := g.actions.size()
+	g.gold = 0
+	t.check(not g.apply({"type": "upgrade", "cell": cell}), "too little gold")
+	t.eq(g.actions.size(), before, "not recorded")
+
+
+func test_build_is_recorded_and_compared() -> void:
+	var r := Replay.from_json(Replay.record(Game.create_map("engen", 1)).to_json())
+	t.eq(r.build, Replay.current_build(), "platform, engine and app version kept")
+	t.eq(r.build_differences(), [] as Array[String], "the same build")
+	var other := Replay.current_build()
+	other.platform = "iOS" if other.platform != "iOS" else "Linux"
+	other.engine = "0.0"
+	t.eq(r.build_differences(other).size(), 2, "another platform and engine")
+	var old := Replay.record(Game.create_map("engen", 1)).to_dict()
+	for key: String in Replay.BUILD_KEYS:
+		old.erase(key)
+	var r_old := Replay.from_json(JSON.stringify(old))
+	t.check(r_old != null, "a replay without build info still loads")
+	t.eq(r_old.build_differences().size(), 3, "and is reported as unknown")
 
 
 func test_invalid_actions_are_rejected_and_not_recorded() -> void:
@@ -220,6 +256,29 @@ func test_replay_errors() -> void:
 		var d := good.duplicate(true)
 		d[key] = cases[key]
 		t.check(Replay.error_of(d) != "", "bad %s is an error" % key)
+	for bad_seed: Variant in [1.5, -0.25, 9007199254740994.0, 1e20, -1e17, true, null]:
+		var d := good.duplicate(true)
+		d.seed = bad_seed
+		t.check(Replay.error_of(d) != "", "seed %s is an error" % bad_seed)
+	for ok_seed: Variant in [0, 7, -3, 4294967295, 1 << 53]:
+		var d := good.duplicate(true)
+		d.seed = ok_seed
+		t.eq(Replay.error_of(d), "", "seed %s is fine" % ok_seed)
+		var r := Replay.from_json(JSON.stringify(d))
+		t.eq(r.seed_value if r else null, ok_seed, "seed %s survives JSON" % ok_seed)
+	t.check(Replay.valid_seed(Replay.MAX_SEED), "2^53 is the largest seed")
+	t.check(not Replay.valid_seed(Replay.MAX_SEED + 1), "above 2^53")
+	for level: Variant in ["nightmare", "", 3, null]:
+		var d := good.duplicate(true)
+		d.options = {"difficulty": level, "mode": "classic"}
+		t.check(Replay.error_of(d) != "", "difficulty %s is an error" % level)
+	for level in Difficulty.ids():
+		var d := good.duplicate(true)
+		d.options = {"difficulty": level}
+		t.eq(Replay.error_of(d), "", "difficulty %s is fine" % level)
+	var no_level := good.duplicate(true)
+	no_level.options = {}
+	t.eq(Replay.error_of(no_level), "", "no difficulty means the default")
 	var d := good.duplicate(true)
 	d.actions = [{"type": "start_wave"}]
 	t.check(Replay.error_of(d) != "", "an action without a tick")
@@ -243,10 +302,55 @@ func test_store_keeps_the_last_round_and_rotates() -> void:
 		t.eq(last.to_json(), r.to_json(), "last.replay.json is the round")
 	t.eq(Replay.store(r, TEMP_DIR, "20260101-000012-000"), OK, "same stamp again")
 	t.eq(Replay.history(TEMP_DIR).size(), Replay.KEEP, "still rotated")
+	t.check(Replay.history(TEMP_DIR)[-1].get_file().begins_with("20260101-000012-000-01-"), "last")
+	var before := Replay.history(TEMP_DIR)
+	var paused := Replay.record(Game.create_map("klofta", 2))
+	t.eq(Replay.store(paused, TEMP_DIR, "", false), OK, "a round in progress")
+	t.eq(Replay.history(TEMP_DIR), before, "goes only to last.replay.json")
+	t.eq(Replay.load_file(TEMP_DIR.path_join(Replay.LAST)).map_id, "klofta", "which has it")
 	for f in DirAccess.get_files_at(TEMP_DIR):
 		t.check(not f.ends_with(".tmp"), "no temp file left: %s" % f)
 	t.check(Replay.load_file(TEMP_DIR.path_join("missing.replay.json")) == null, "missing file")
 	_clear(TEMP_DIR)
+
+
+func test_history_sorts_by_time_and_duplicates() -> void:
+	_clear(TEMP_DIR)
+	var r := Replay.record(Game.create_map("engen", 1))
+	# Same millisecond for maps whose names sort the other way, then later ones.
+	for stamp: String in ["20260101-000000-500", "20260101-000000-500", "20260101-000000-500"]:
+		Replay.store(r, TEMP_DIR, stamp)
+	r.map_id = "aaa"
+	Replay.store(r, TEMP_DIR, "20260101-000000-500")
+	Replay.store(r, TEMP_DIR, "20260101-000001-000")
+	var names: Array[String] = []
+	for path in Replay.history(TEMP_DIR):
+		names.append(path.get_file())
+	(
+		t
+		. eq(
+			names,
+			(
+				[
+					"20260101-000000-500-00-engen.replay.json",
+					"20260101-000000-500-01-engen.replay.json",
+					"20260101-000000-500-02-engen.replay.json",
+					"20260101-000000-500-03-aaa.replay.json",
+					"20260101-000001-000-00-aaa.replay.json",
+				]
+				as Array[String]
+			),
+			"in the order they were stored"
+		)
+	)
+	_clear(TEMP_DIR)
+
+
+func test_stamp_is_utc_from_one_time_value() -> void:
+	t.eq(Replay.stamp_of(0.0), "19700101-000000-000", "the epoch in UTC")
+	t.eq(Replay.stamp_of(1794268799.9996), "20261109-235959-999", "ms from the same value")
+	t.eq(Replay.stamp_of(1794268800.0), "20261110-000000-000", "the next second")
+	t.check(Replay.stamp_of(1.25) < Replay.stamp_of(2.0), "sorts by time")
 
 
 func test_committed_replays_play_back_to_their_result() -> void:

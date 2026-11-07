@@ -106,6 +106,8 @@ func set_paused(on: bool) -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_PAUSED and game and not game.is_over():
 		set_paused(true)  # the app went to the background (mobile)
+	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_WM_CLOSE_REQUEST:
+		_save_replay(false)  # the app may never come back: keep the round so far
 
 
 ## Keeps the result in the progress file and shows the stars and any record.
@@ -123,13 +125,15 @@ func _on_game_over(_won: bool) -> void:
 	_save_replay()
 
 
-## Keeps the round as a replay (once): user://replays/last.replay.json and the
-## last few rounds. Not for a round left before anything happened.
-func _save_replay() -> void:
-	if _replay_saved or replay_dir == "" or game.actions.is_empty():
+## Keeps the round as a replay: user://replays/last.replay.json and, once
+## (`final`: the round ended or is left), in the last few rounds. A round in
+## progress (the app paused or closing) only goes to last.replay.json, so it is
+## kept without filling the history. Not for a round where nothing happened.
+func _save_replay(final := true) -> void:
+	if _replay_saved or replay_dir == "" or game == null or game.actions.is_empty():
 		return
-	_replay_saved = true
-	var err := Replay.store(Replay.record(game), replay_dir)
+	_replay_saved = final
+	var err := Replay.store(Replay.record(game), replay_dir, "", final)
 	if err != OK:
 		push_warning("replay not saved: %s" % error_string(err))
 
