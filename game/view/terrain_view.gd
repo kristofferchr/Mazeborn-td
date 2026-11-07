@@ -106,26 +106,25 @@ func add_portal(cell: Vector2i, color: Color, direction: float, beam: bool) -> v
 	arch.position = center + Vector3(out.x, 0.0, out.y) * 0.36
 	arch.rotation.y = atan2(out.x, out.y)
 	add_child(arch)
+	# Pillars, feet and the arch stones as one mesh.
+	var stones := TowerArt.Builder.new()
+	var foot := TerrainMeshes.prism(0.17, 0.15, 0.14, 4, PI / 4.0)
+	var pillar := TerrainMeshes.prism(0.1, 0.085, 1.0, 4, PI / 4.0)
 	for side: float in [-1.0, 1.0]:
-		var foot := MeshInstance3D.new()
-		foot.mesh = TerrainMeshes.prism(0.17, 0.15, 0.14, 4, PI / 4.0)
-		foot.position = Vector3(side * 0.44, 0.0, 0.0)
-		var pillar := MeshInstance3D.new()
-		pillar.mesh = TerrainMeshes.prism(0.1, 0.085, 1.0, 4, PI / 4.0)
-		pillar.position = Vector3(side * 0.44, 0.12, 0.0)
-		for n: MeshInstance3D in [foot, pillar]:
-			n.material_override = _rock_mat
-			arch.add_child(n)
-	var stone := BoxMesh.new()
-	stone.size = Vector3(0.2, 0.15, 0.2)
+		stones.add(foot, Transform3D(Basis.IDENTITY, Vector3(side * 0.44, 0.0, 0.0)), Color.WHITE)
+		stones.add(
+			pillar, Transform3D(Basis.IDENTITY, Vector3(side * 0.44, 0.12, 0.0)), Color.WHITE
+		)
+	var block := BoxMesh.new()
+	block.size = Vector3(0.2, 0.15, 0.2)
 	for k in 7:
 		var a := PI * k / 6.0
-		var block := MeshInstance3D.new()
-		block.mesh = stone
-		block.material_override = _rock_mat
-		block.position = Vector3(cos(a) * 0.44, 1.12 + sin(a) * 0.36, 0.0)
-		block.rotation.z = a - PI / 2.0
-		arch.add_child(block)
+		var at := Vector3(cos(a) * 0.44, 1.12 + sin(a) * 0.36, 0.0)
+		stones.add(block, Transform3D(Basis(Vector3.BACK, a - PI / 2.0), at), Color.WHITE)
+	var stone := MeshInstance3D.new()
+	stone.mesh = stones.commit()
+	stone.material_override = _rock_mat
+	arch.add_child(stone)
 	var rune := MeshInstance3D.new()
 	var gem := BoxMesh.new()
 	gem.size = Vector3(0.1, 0.1, 0.22)
@@ -138,7 +137,8 @@ func add_portal(cell: Vector2i, color: Color, direction: float, beam: bool) -> v
 	var quad := QuadMesh.new()
 	quad.size = Vector2(0.78, 1.3)
 	veil.mesh = quad
-	veil.material_override = _portal_mat(color, direction)
+	var swirl := _portal_mat(color, direction)
+	veil.material_override = swirl
 	veil.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	veil.position.y = 0.76
 	arch.add_child(veil)
@@ -146,7 +146,7 @@ func add_portal(cell: Vector2i, color: Color, direction: float, beam: bool) -> v
 	var plane := PlaneMesh.new()
 	plane.size = Vector2(1.3, 1.3)
 	disk.mesh = plane
-	disk.material_override = _portal_mat(color, direction)
+	disk.material_override = swirl
 	disk.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	disk.position = center + Vector3(0.0, 0.02, 0.0)
 	add_child(disk)
@@ -393,26 +393,24 @@ func _rock_cells() -> void:
 		var rng := RandomNumberGenerator.new()
 		rng.seed = hash(cell) + 17
 		var at := Vector3(cell.x + 0.5, 0.0, cell.y + 0.5)
+		# Everything stays within the cell (about 0.5 from its centre): the
+		# models turn in quarter steps and are scaled to their footprint.
 		if style == "mountain":
 			var file: String = MOUNTAINS[rng.randi() % MOUNTAINS.size()]
-			_rock(
-				file,
-				at,
-				rng.randf_range(0.55, 0.68),
-				rng,
-				Vector3(1.0, rng.randf_range(0.9, 1.25), 1.0)
-			)
+			var tall := Vector3(1.0, rng.randf_range(1.25, 1.7), 1.0)
+			_rock(file, at, 0.49, rng, tall, true)
+		elif rng.randf() < 0.5:
+			var tall := Vector3(1.0, rng.randf_range(1.15, 1.4), 1.0)
+			_rock("rock_single_C", at, rng.randf_range(2.35, 2.5), rng, tall, true)
 		else:
-			if rng.randf() < 0.5:
-				_rock("rock_single_C", at, rng.randf_range(3.4, 3.8), rng)
-			else:
-				_rock("rock_single_E", at, rng.randf_range(2.6, 2.8), rng)
+			var tall := Vector3(1.0, rng.randf_range(1.25, 1.5), 1.0)
+			_rock("rock_single_E", at, rng.randf_range(1.75, 1.85), rng, tall, true)
 		for i in rng.randi_range(2, 3):
-			var off := Vector3(rng.randf_range(-0.42, 0.42), 0.0, rng.randf_range(-0.42, 0.42))
+			var off := Vector3(rng.randf_range(-0.27, 0.27), 0.0, rng.randf_range(-0.27, 0.27))
 			var pebble: String = PEBBLES[rng.randi() % PEBBLES.size()]
-			_rock(pebble, at + off, rng.randf_range(1.1, 1.7), rng)
+			_rock(pebble, at + off, rng.randf_range(1.0, 1.4), rng)
 		for i in rng.randi_range(1, 3):
-			var off := Vector2(rng.randf_range(-0.48, 0.48), rng.randf_range(-0.48, 0.48))
+			var off := Vector2(rng.randf_range(-0.3, 0.3), rng.randf_range(-0.3, 0.3))
 			_plant(Vector3(at.x + off.x, 0.0, at.z + off.y), rng, 0.15)
 
 
@@ -564,10 +562,18 @@ func _plant(at: Vector3, rng: RandomNumberGenerator, flowers: float) -> void:
 	_add("flower" if flower else "tuft", "plant", xf, tint, false)
 
 
+## A rock model, turned at random (or in quarter turns, which keep its
+## footprint inside a cell) and scaled by `s` and `stretch`.
 func _rock(
-	file: String, at: Vector3, s: float, rng: RandomNumberGenerator, stretch := Vector3.ONE
+	file: String,
+	at: Vector3,
+	s: float,
+	rng: RandomNumberGenerator,
+	stretch := Vector3.ONE,
+	quarter := false
 ) -> void:
-	var b := Basis(Vector3.UP, rng.randf() * TAU).scaled(stretch * s)
+	var angle := (rng.randi() % 4) * PI / 2.0 if quarter else rng.randf() * TAU
+	var b := Basis(Vector3.UP, angle).scaled(stretch * s)
 	_add(file, "rock", Transform3D(b, at), STONES[rng.randi() % STONES.size()], true)
 
 

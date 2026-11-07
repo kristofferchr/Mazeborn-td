@@ -419,13 +419,6 @@ func _tower_model(tower: Tower) -> Node3D:
 	return root
 
 
-func _part(parent: Node3D, mesh: Mesh, color: Color, pos := Vector3.ZERO) -> MeshInstance3D:
-	var m := _mesh(mesh, color)
-	m.position = pos
-	parent.add_child(m)
-	return m
-
-
 func _on_tower_sold(tower: Tower, _refund: int) -> void:
 	var node: Node3D = _towers.get(tower.cell)
 	_towers.erase(tower.cell)
@@ -560,12 +553,6 @@ func _mesh(mesh: Mesh, color: Color, unshaded := false) -> MeshInstance3D:
 	n.mesh = mesh
 	n.material_override = mat(color, unshaded)
 	return n
-
-
-func _box(size: Vector3) -> BoxMesh:
-	var b := BoxMesh.new()
-	b.size = size
-	return b
 
 
 func _plane(size: Vector2) -> PlaneMesh:
