@@ -3,12 +3,15 @@ extends Node
 ## Sound effects and music. Listens to the Game's signals (the core knows
 ## nothing about audio). Sounds: assets/audio/*.ogg, made by scripts/make_sfx.py.
 ## A small pool of players with per-sound limits and random pitch keeps twenty
-## towers from turning into noise. Two music layers play in sync: the calm one
-## always, the drums fade in during a wave. Music and effects play on their own
-## buses ("Music", "Sfx") with the volumes from the settings; mute silences the
-## master bus. Settings: UserSettings (user://settings.cfg). The music ducks
-## while the game is paused. Browsers block audio until a user gesture, so on
-## the web it starts on the first tap.
+## towers from turning into noise. Every button in the tree clicks. In a round
+## (setup) two music layers play in sync: the calm one always, the drums fade
+## in during a wave. In the menus (play_menu) a calmer menu track plays; the
+## app keeps one GameAudio for the menus and its rounds and crossfades between
+## the tracks (a round on its own makes its own). Music and effects play on
+## their own buses ("Music", "Sfx") with the volumes from the settings; mute
+## silences the master bus. Settings: UserSettings (user://settings.cfg). The
+## music ducks while the game is paused. Browsers block audio until a user
+## gesture, so on the web it starts on the first tap.
 
 signal muted_changed(muted: bool)
 
@@ -19,7 +22,10 @@ const DUCK_DB := -12.0  # music while paused
 const POOL_SIZE := 16
 const MUSIC_DB := -11.0  # calm layer
 const BATTLE_DB := -9.0  # drum layer during a wave
+const MENU_DB := -11.0  # menu track
 const SILENT_DB := -60.0
+const CROSSFADE := 1.5  # seconds between the menu and the round music
+const GROUP := "game_audio"  # every GameAudio in the tree (e.g. for a sound preview)
 const FIRE_SOUNDS := {
 	"arrow": "fire_arrow",
 	"earth": "fire_earth",
@@ -60,7 +66,7 @@ const EVENTS := {
 	"click": "click",
 	"tick": "click",
 }
-const MUSIC := {"calm": "music_calm", "battle": "music_battle"}
+const MUSIC := {"calm": "music_calm", "battle": "music_battle", "menu": "music_menu"}
 ## Per sound: [volume dB, max playing at once, min seconds between starts,
 ## pitch spread, priority]. A full pool steals the oldest voice of the same or
 ## lower priority.
@@ -102,14 +108,18 @@ static var _music_volume := 1.0  # slider values 0..1 from the settings
 static var _sfx_volume := 1.0
 
 var muted := false
+var scene := ""  # what the music is for: "menu", "round" or "" (not set up yet)
 var _game: Game
+var _links: Array = []  # [Signal, Callable] connected to the game
 var _duck_tween: Tween
 var _streams: Dictionary = {}  # sound -> AudioStream
 var _pool: Array[AudioStreamPlayer] = []
 var _last_start: Dictionary = {}  # sound -> msec of the last start
 var _calm: AudioStreamPlayer
 var _battle: AudioStreamPlayer
-var _battle_tween: Tween
+var _menu: AudioStreamPlayer
+var _fades: Dictionary = {}  # music player -> Tween
+var _targets: Dictionary = {}  # music player -> dB it is at or fading to
 
 
 ## Sound of a tower kind (and element) firing.
@@ -176,6 +186,8 @@ func _ready() -> void:
 	bus(SFX_BUS)
 	_calm = _music_player(MUSIC.calm, MUSIC_DB)
 	_battle = _music_player(MUSIC.battle, SILENT_DB)
+	_menu = _music_player(MUSIC.menu, SILENT_DB)
+	add_to_group(GROUP)
 	_load_settings()
 	set_ducked(false, 0.0)
 	if _unlocked:
@@ -193,21 +205,59 @@ func _exit_tree() -> void:
 	_set_duck(0.0)
 
 
+## Plays a round: its sounds and the round music (crossfaded from the menu).
+## Lets go of an earlier round's game.
 func setup(p_game: Game) -> void:
+	var from_menu := scene == "menu"
+	_detach()
 	_game = p_game
-	_game.tower_built.connect(func(_t: Tower) -> void: play_event("build"))
-	_game.tower_upgraded.connect(func(_t: Tower) -> void: play_event("upgrade"))
-	_game.tower_sold.connect(func(_t: Tower, _r: int) -> void: play_event("sell"))
-	_game.tower_fired.connect(_on_tower_fired)
-	_game.projectile_hit.connect(_on_projectile_hit)
-	_game.chain_hit.connect(func(_from: Vector2, _c: Creep) -> void: play_event("chain"))
-	_game.creep_killed.connect(_on_creep_killed)
-	_game.creep_leaked.connect(func(_c: Creep) -> void: play_event("leak"))
-	_game.wave_started.connect(_on_wave_started)
-	_game.wave_cleared.connect(_on_wave_cleared)
-	_game.countdown_tick.connect(_on_countdown_tick)
-	_game.gold_bonus.connect(_on_gold_bonus)
-	_game.game_over.connect(_on_game_over)
+	_link(_game.tower_built, func(_t: Tower) -> void: play_event("build"))
+	_link(_game.tower_upgraded, func(_t: Tower) -> void: play_event("upgrade"))
+	_link(_game.tower_sold, func(_t: Tower, _r: int) -> void: play_event("sell"))
+	_link(_game.tower_fired, _on_tower_fired)
+	_link(_game.projectile_hit, _on_projectile_hit)
+	_link(_game.chain_hit, func(_from: Vector2, _c: Creep) -> void: play_event("chain"))
+	_link(_game.creep_killed, _on_creep_killed)
+	_link(_game.creep_leaked, func(_c: Creep) -> void: play_event("leak"))
+	_link(_game.wave_started, _on_wave_started)
+	_link(_game.wave_cleared, _on_wave_cleared)
+	_link(_game.countdown_tick, _on_countdown_tick)
+	_link(_game.game_over, _on_game_over)
+	scene = "round"
+	if _unlocked:
+		_start_music(CROSSFADE if from_menu else 0.0)
+
+
+## The menu music (title screen and map select), crossfaded from a round's.
+## Lets go of the round's game and undoes a pause duck.
+func play_menu(seconds := CROSSFADE) -> void:
+	_detach()
+	set_ducked(false, 0.0)
+	if scene == "menu":
+		return
+	scene = "menu"
+	if _unlocked:
+		_start_music(seconds)
+
+
+## The dB a music layer ("calm", "battle" or "menu") is at or fading to.
+func music_target(layer: String) -> float:
+	var p: AudioStreamPlayer = {"calm": _calm, "battle": _battle, "menu": _menu}[layer]
+	return float(_targets.get(p, SILENT_DB))
+
+
+func _link(sig: Signal, callable: Callable) -> void:
+	sig.connect(callable)
+	_links.append([sig, callable])
+
+
+func _detach() -> void:
+	for link: Array in _links:
+		var sig: Signal = link[0]
+		if sig.is_connected(link[1]):
+			sig.disconnect(link[1])
+	_links.clear()
+	_game = null
 
 
 func play_event(event: String, pitch := 1.0, volume := 0.0) -> bool:
@@ -312,21 +362,50 @@ func _music_player(sound: String, db: float) -> AudioStreamPlayer:
 	return p
 
 
-func _start_music() -> void:
-	if _calm.stream and not _calm.playing:
-		# Start both layers together so they stay in time.
-		_calm.play()
-		_battle.play()
-		if _game and _game.phase == Game.Phase.WAVE:
-			_battle.volume_db = BATTLE_DB
+## Starts the music for the scene, fading over `seconds` from what played.
+func _start_music(seconds := 0.0) -> void:
+	if scene == "menu":
+		_fade(_calm, SILENT_DB, seconds, true)
+		_fade(_battle, SILENT_DB, seconds, true)
+		if _menu.stream and not _menu.playing:
+			_menu.volume_db = SILENT_DB if seconds > 0.0 else MENU_DB
+			_menu.play()
+		_fade(_menu, MENU_DB, seconds)
+	elif scene == "round":
+		_fade(_menu, SILENT_DB, seconds, true)
+		if _calm.stream and not _calm.playing:
+			# Start both layers together so they stay in time.
+			_calm.volume_db = SILENT_DB if seconds > 0.0 else MUSIC_DB
+			_battle.volume_db = SILENT_DB
+			_calm.play()
+			_battle.play()
+		_fade(_calm, MUSIC_DB, maxf(seconds, 0.5) if _calm.volume_db != MUSIC_DB else 0.0)
+		var wave := _game != null and _game.phase == Game.Phase.WAVE
+		_fade(_battle, BATTLE_DB if wave else SILENT_DB, seconds)
+
+
+## Fades a music player to `db` (at once for seconds <= 0), and stops it there
+## if `stop` (it starts again from the top next time).
+func _fade(p: AudioStreamPlayer, db: float, seconds: float, stop := false) -> void:
+	if _fades.has(p):
+		(_fades[p] as Tween).kill()
+		_fades.erase(p)
+	_targets[p] = db
+	if seconds <= 0.0 or not is_inside_tree():
+		p.volume_db = db
+		if stop:
+			p.stop()
+		return
+	var tw := create_tween()
+	tw.tween_property(p, "volume_db", db, seconds)
+	if stop:
+		tw.tween_callback(p.stop)
+	_fades[p] = tw
 
 
 ## Fades the drum layer in (during a wave) or out.
 func _set_battle(on: bool, seconds: float) -> void:
-	if _battle_tween:
-		_battle_tween.kill()
-	_battle_tween = create_tween()
-	_battle_tween.tween_property(_battle, "volume_db", BATTLE_DB if on else SILENT_DB, seconds)
+	_fade(_battle, BATTLE_DB if on else SILENT_DB, seconds)
 
 
 func _input(event: InputEvent) -> void:
@@ -382,12 +461,7 @@ func _on_countdown_tick(seconds_left: int) -> void:
 		play_event("tick", 1.9 - 0.15 * seconds_left, 5.0)
 
 
-func _on_gold_bonus(_amount: int, reason: String) -> void:
-	if reason == "early":
-		play_event("coin", 0.9)
-
-
 func _on_game_over(won: bool) -> void:
 	play_event("victory" if won else "defeat")
 	_set_battle(false, 1.5)
-	create_tween().tween_property(_calm, "volume_db", MUSIC_DB - 8.0, 1.5)
+	_fade(_calm, MUSIC_DB - 8.0, 1.5)

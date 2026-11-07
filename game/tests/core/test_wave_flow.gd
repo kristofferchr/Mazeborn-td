@@ -1,5 +1,5 @@
 extends RefCounted
-## Tests for the wave flow (countdown between waves, gold for sending early)
+## Tests for the wave flow (countdown between waves, sending early for no gold)
 ## and the endless mode (generated waves, never won).
 
 var t: Object  # test runner (check/eq)
@@ -7,11 +7,9 @@ var _base: Object = load("res://tests/core/test_game.gd").new()
 
 
 ## The 7x3 test corridor with a countdown of `seconds` between waves.
-func _flow_game(waves: Array, seconds := 10.0, per_second := 0.5, options := {}) -> Game:
+func _flow_game(waves: Array, seconds := 10.0, options := {}) -> Game:
 	var config: Dictionary = _base._config(waves)
 	config.build_time = seconds
-	config.early_gold_per_second = per_second
-	config.early_bonus = 5
 	var grid := Grid.new(Vector2i(7, 3), Vector2i(0, 1), Vector2i(6, 1))
 	return Game.new(config, grid, 1, options)
 
@@ -40,7 +38,6 @@ func test_first_wave_waits_for_the_player() -> void:
 	t.eq(g.phase, Game.Phase.BUILD, "no auto start before the first wave")
 	t.eq(g.wave, 0, "still before wave 1")
 	t.check(not g.countdown_active(), "no countdown before the first wave")
-	t.eq(g.early_gold(), 0, "no early gold for the first wave")
 
 
 func test_next_wave_starts_by_itself_after_the_build_time() -> void:
@@ -74,30 +71,29 @@ func test_countdown_ticks_each_second() -> void:
 	t.eq(ticks, [3, 2, 1, 0] as Array[int], "a tick per whole second")
 
 
-func test_sending_early_pays_for_the_time_left() -> void:
-	var g := _flow_game([_base._wave(1, 10), _base._wave(1, 10)], 20.0, 0.5)
+func test_sending_during_the_countdown_pays_no_gold() -> void:
+	var g := _flow_game([_base._wave(1, 10), _base._wave(1, 10)], 20.0)
 	g.start_wave()
 	g.run_wave()
 	_steps(g, roundi(2.0 / Game.DT))  # 18 s left
-	t.eq(g.early_gold(), 9, "1 gold per 2 s left")
 	var bonus: Array = []
 	g.gold_bonus.connect(func(a: int, r: String) -> void: bonus.append([a, r]))
 	var gold := g.gold
 	t.check(g.start_wave(), "send now")
-	t.eq(g.gold, gold + 9, "paid 9")
-	t.eq(bonus, [[9, "early"]], "gold_bonus early")
+	t.eq(g.wave, 2, "wave 2 started")
+	t.eq(g.gold, gold, "no gold for sending early")
+	t.eq(bonus, [], "no gold_bonus")
 	t.check(not g.countdown_active(), "countdown stopped")
 
 
-func test_sending_while_a_wave_runs_pays_the_whole_countdown_and_the_flat_bonus() -> void:
-	var g := _flow_game([_base._wave(1, 1000, 0.5), _base._wave(1, 10)], 20.0, 0.5)
+func test_sending_while_a_wave_runs_pays_no_gold() -> void:
+	var g := _flow_game([_base._wave(1, 1000, 0.5), _base._wave(1, 10)], 20.0)
 	g.start_wave()
 	g.step()  # the only creep has spawned
 	t.check(g.can_send_early(), "may send while the wave runs")
-	t.eq(g.early_gold(), 5 + 10, "flat early_bonus plus 20 s at 0.5 gold")
 	var gold := g.gold
 	g.start_wave()
-	t.eq(g.gold, gold + 15, "paid")
+	t.eq(g.gold, gold, "no gold for sending early")
 	t.eq(g.wave, 2, "both waves run")
 	g.run_wave()
 	t.eq(g.phase, Game.Phase.WON, "clearing both wins")
@@ -109,7 +105,6 @@ func test_without_build_time_the_old_flow_is_kept() -> void:
 	g.run_wave()
 	_steps(g, roundi(60.0 / Game.DT))
 	t.eq(g.phase, Game.Phase.BUILD, "waits for the player")
-	t.eq(g.early_gold(), 0, "no gold between waves")
 
 
 func test_build_time_gets_shorter_and_waves_may_set_their_own() -> void:
@@ -131,7 +126,6 @@ func _flow_summary(seed_value: int) -> Array:
 		[_base._wave(8, 30, 1.5, 3), _base._wave(8, 40, 1.5, 3), _base._wave(8, 50, 1.5, 3)], 40
 	)
 	config.build_time = 7.0
-	config.early_gold_per_second = 0.5
 	var grid := Grid.new(Vector2i(7, 3), Vector2i(0, 1), Vector2i(6, 1))
 	var g := Game.new(config, grid, seed_value)
 	g.tower_base_stats("stone").damage_min = 3

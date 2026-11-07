@@ -4,9 +4,9 @@ extends SceneTree
 ## difficulty (an id from data/difficulty.json, or "all" for every level;
 ## default: normal) and the mode:
 ## "wait" (default: classic, the bot lets each countdown run out), "early"
-## (classic, the bot sends each wave as soon as it has built, for the early
-## gold), "endless" and "endless-early" (endless with either bot, until it
-## loses, at most MAX_ENDLESS waves).
+## (classic, the bot sends each wave as soon as it has built), "endless" and
+## "endless-early" (endless with either bot, until it loses, at most
+## MAX_ENDLESS waves).
 ## Usage: scripts/godot.sh --headless --path game -s res://tools/balance.gd
 ##   [-- map|all [seed [difficulty|all] [mode]]]
 
@@ -70,7 +70,7 @@ func _play(id: String, seed_value: int, level: String, mode: String) -> String:
 	g.creep_leaked.disconnect(count_leak)
 	print(_board(g))
 	var result := (
-		"%-8s %-16s %-13s %-4s lives %2d/%2d wave %3d cleared %3d early gold %3d"
+		"%-8s %-16s %-13s %-4s lives %2d/%2d wave %3d cleared %3d"
 		% [
 			level,
 			id,
@@ -80,7 +80,6 @@ func _play(id: String, seed_value: int, level: String, mode: String) -> String:
 			g.start_lives,
 			g.wave,
 			g.score(),
-			bot.early_gold,
 		]
 	)
 	print("result: ", result)

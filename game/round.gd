@@ -8,7 +8,12 @@ extends Node3D
 ## in the menu, tap a tower to upgrade or sell; drag to pan, pinch to zoom.
 ## The pause button (or Esc, or the app going to the background) pauses the
 ## tree; the pause menu and settings keep working. The result of a finished
-## round is kept in the progress file (Progress).
+## round is kept in the progress file (Progress). Every player action goes
+## through Game.apply, so the round is recorded: when it ends (or is left) it is
+## kept as a replay (Replay.store), and "Del replay" on the end screen shares it
+## (ReplayShare).
+## With "tutorial" in the options the coach marks guide the player
+## (CoachMarks, Onboarding).
 
 signal retry_requested  # "Prøv igjen" / "Start på nytt": the same map again
 signal maps_requested  # "Velg kart" / "Avslutt til kart": back to the map select
@@ -19,6 +24,8 @@ const NO_CELL := Vector2i(-1, -1)
 var map_id := Maps.DEFAULT
 var options: Dictionary = {}  # passed on to Game.create_map, unknown keys too
 var progress_path := Progress.PATH  # where results are kept ("" to keep none)
+var replay_dir := Replay.DIR  # where replays are kept ("" to keep none)
+var seed_value := -1  # seed for the Game (-1: a new random one; it is in the replay)
 var paused := false
 var game: Game
 var board: BoardView
@@ -32,10 +39,14 @@ var build_kind := "arrow"  # tower kind chosen in the build menu
 var _touches: Dictionary = {}  # index -> position
 var _tap_start := Vector2.ZERO
 var _tap_valid := false
+var _record_wave := 0  # endless: the best wave before this round (0: no notice)
+var _replay_saved := false
 
 
 func _ready() -> void:
-	game = Game.create_map(map_id, int(Time.get_unix_time_from_system()), options)
+	if seed_value < 0:
+		seed_value = randi()
+	game = Game.create_map(map_id, seed_value, options)
 	speed = float(UserSettings.open().speed)
 	add_environment(self)
 
@@ -52,26 +63,33 @@ func _ready() -> void:
 	hud = Hud.new()
 	add_child(hud)
 	hud.setup(game, board, camera)
-	hud.start_wave_pressed.connect(func() -> void: game.start_wave())
+	hud.start_wave_pressed.connect(func() -> void: game.apply({"type": "start_wave"}))
 	hud.build_pressed.connect(func() -> void: _build_selected())
 	hud.sell_pressed.connect(_sell_selected)
-	hud.upgrade_pressed.connect(func(option: String) -> void: game.upgrade(selected, option))
+	hud.upgrade_pressed.connect(_upgrade_selected)
 	hud.kind_selected.connect(func(kind: String) -> void: build_kind = kind)
 	hud.targeting_pressed.connect(_toggle_targeting)
 	hud.speed_pressed.connect(_toggle_speed)
 	hud.retry_pressed.connect(_retry)
 	hud.maps_pressed.connect(_choose_map)
+	hud.share_pressed.connect(_share_replay)
 	hud.pause_pressed.connect(set_paused.bind(true))
 	hud.resume_pressed.connect(set_paused.bind(false))
 	hud.set_speed_text("%dx" % int(speed))
 	game.game_over.connect(_on_game_over)
+	Haptics.load_setting(UserSettings.open())
+	Haptics.watch(game)
+	_watch_record()
 
-	audio = GameAudio.new()
-	add_child(audio)
+	if audio == null:  # on its own; in the app the menus' GameAudio carries on
+		audio = GameAudio.new()
+		add_child(audio)
 	audio.setup(game)
 	hud.set_muted(audio.muted)
 	hud.mute_pressed.connect(audio.toggle_muted)
 	audio.muted_changed.connect(hud.set_muted)
+	if Onboarding.is_tutorial(options):  # the guided first round
+		CoachMarks.new().setup(self)
 	game.creep_leaked.connect(func(c: Creep) -> void: camera.shake(_shake_for(c, true)))
 	game.creep_killed.connect(func(c: Creep) -> void: camera.shake(_shake_for(c, false)))
 
@@ -97,6 +115,8 @@ func set_paused(on: bool) -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_PAUSED and game and not game.is_over():
 		set_paused(true)  # the app went to the background (mobile)
+	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_WM_CLOSE_REQUEST:
+		_save_replay(false)  # the app may never come back: keep the round so far
 
 
 ## Keeps the result in the progress file and shows the stars and any record.
@@ -111,11 +131,50 @@ func _on_game_over(_won: bool) -> void:
 		if progress.record(map_id, game.difficulty, result):
 			progress.save()
 	hud.show_result(int(result.stars), record)
+	_save_replay()
+
+
+## Keeps the round as a replay: user://replays/last.replay.json and, once
+## (`final`: the round ended or is left), in the last few rounds. A round in
+## progress (the app paused or closing) only goes to last.replay.json, so it is
+## kept without filling the history. Not for a round where nothing happened.
+func _save_replay(final := true) -> void:
+	if _replay_saved or replay_dir == "" or game == null or game.actions.is_empty():
+		return
+	_replay_saved = final
+	var err := Replay.store(Replay.record(game), replay_dir, "", final)
+	if err != OK:
+		push_warning("replay not saved: %s" % error_string(err))
+
+
+## "Del replay": hands the round's replay to the platform (ReplayShare) and
+## says what happened.
+func _share_replay() -> void:
+	var replay := Replay.record(game)
+	hud.show_toast(ReplayShare.share(replay.to_json(), replay.file_name()))
+
+
+## Endless: a "Rekord!" notice the first time the round passes the best wave
+## reached before.
+func _watch_record() -> void:
+	if progress_path == "" or Progress.mode_of(game.options) != Progress.ENDLESS:
+		return
+	var best := Progress.open(progress_path).best(map_id, game.difficulty, Progress.ENDLESS)
+	_record_wave = int(best.get("wave", 0))
+	if _record_wave > 0:
+		game.wave_cleared.connect(_on_wave_cleared_record)
+
+
+func _on_wave_cleared_record(_number: int) -> void:
+	if Progress.passes_record(_record_wave, game.score()):
+		hud.notify("Rekord!", "Forbi forrige beste: bølge %d" % _record_wave)
+		_record_wave = 0
 
 
 ## Restarts the map: the app (main.gd) makes a new round; on its own the scene
 ## reloads.
 func _retry() -> void:
+	_save_replay()
 	set_paused(false)
 	if retry_requested.get_connections().is_empty():
 		get_tree().reload_current_scene()
@@ -124,6 +183,7 @@ func _retry() -> void:
 
 
 func _choose_map() -> void:
+	_save_replay()
 	set_paused(false)
 	if maps_requested.get_connections().is_empty():
 		get_tree().change_scene_to_file("res://main.tscn")
@@ -227,23 +287,27 @@ func _select(cell: Vector2i) -> void:
 
 
 func _build_selected() -> void:
-	if selected != NO_CELL and game.build(selected, build_kind) != null:
+	if selected == NO_CELL:
+		return
+	if game.apply({"type": "build", "cell": selected, "kind": build_kind}):
 		_select(NO_CELL)
 
 
 func _sell_selected() -> void:
-	if selected != NO_CELL and game.sell(selected) > 0:
+	if selected != NO_CELL and game.apply({"type": "sell", "cell": selected}):
 		_select(NO_CELL)
+
+
+func _upgrade_selected(option: String) -> void:
+	if selected != NO_CELL:
+		game.apply({"type": "upgrade", "cell": selected, "option": option})
 
 
 func _toggle_targeting() -> void:
 	var tower := game.tower_at(selected)
 	if tower:
-		tower.targeting = (
-			Tower.Targeting.CLOSEST
-			if tower.targeting == Tower.Targeting.FIRST
-			else Tower.Targeting.FIRST
-		)
+		var mode := "closest" if tower.targeting == Tower.Targeting.FIRST else "first"
+		game.apply({"type": "target", "cell": selected, "mode": mode})
 
 
 func _toggle_speed() -> void:
@@ -251,25 +315,36 @@ func _toggle_speed() -> void:
 	hud.set_speed_text("%dx" % int(speed))
 
 
-## Warm late-afternoon sun with soft shadows, cool sky fill light, filmic tone
-## mapping and a little glow, added to `parent`. `cheap` leaves out the shadows
+## Warm late-afternoon sun with soft shadows, cool sky fill light, a dark depth
+## fog that swallows the far land, filmic tone mapping and a little glow,
+## added to `parent`. `cheap` leaves out the shadows
 ## and the glow (behind the menus).
 static func add_environment(parent: Node, cheap := false) -> void:
 	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-50.0, 40.0, 0.0)
-	sun.light_color = Color(1.0, 0.94, 0.84)
-	sun.light_energy = 1.25
+	sun.rotation_degrees = Vector3(-46.0, 35.0, 0.0)
+	sun.light_color = Color(1.0, 0.93, 0.8)
+	sun.light_energy = 1.35
 	sun.shadow_enabled = not cheap
-	sun.shadow_blur = 1.5
-	sun.directional_shadow_max_distance = 45.0
+	sun.shadow_blur = 1.2
+	sun.shadow_opacity = 0.85
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
+	sun.directional_shadow_max_distance = 40.0
 	parent.add_child(sun)
 
 	var e := Environment.new()
 	e.background_mode = Environment.BG_COLOR
-	e.background_color = Color(0.13, 0.22, 0.14)
+	e.background_color = Color(0.1, 0.15, 0.13)
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	e.ambient_light_color = Color(0.62, 0.7, 0.85)
-	e.ambient_light_energy = 0.75
+	e.ambient_light_color = Color(0.6, 0.68, 0.85)
+	e.ambient_light_energy = 0.7
+	# Depth fog: the far land fades into a dark haze around the map.
+	e.fog_enabled = true
+	e.fog_mode = Environment.FOG_MODE_DEPTH
+	e.fog_light_color = Color(0.1, 0.15, 0.13)
+	e.fog_density = 0.85
+	e.fog_depth_begin = 26.0
+	e.fog_depth_end = 62.0
+	e.fog_sun_scatter = 0.0
 	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	e.tonemap_exposure = 1.05
 	e.tonemap_white = 6.0

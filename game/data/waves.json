@@ -2,8 +2,6 @@
 	"start_gold": 80,
 	"lives": 20,
 	"wave_bonus": 5,
-	"early_bonus": 5,
-	"early_gold_per_second": 0.5,
 	"build_time": 25,
 	"build_time_step": 1,
 	"build_time_min": 15,
